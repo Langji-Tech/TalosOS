@@ -118,10 +118,46 @@ if [ -f "$BUILD_DIR/CMakeCache.txt" ]; then
   rm -rf "$BUILD_DIR/CMakeFiles/3."* 2>/dev/null || true
 fi
 
-# Explicit Python layout — conda usually "just works" but passing these
-# guarantees we land in the conda env's site-packages with headers it ships.
+# Explicit Python layout — query sysconfig to pin Python.h + libpython
+# locations, avoiding the Development.Module probe failures we hit on
+# conda / uv venvs.
 py_base="$("$env_py" -c 'import sys; print(sys.base_prefix)')"
 py_site="lib/python${py_ver}/site-packages"
+py_inc="$("$env_py" -c 'import sysconfig; print(sysconfig.get_paths()["include"])')"
+py_libdir="$("$env_py" -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR") or "")')"
+py_ldlib="$("$env_py" -c 'import sysconfig; print(sysconfig.get_config_var("LDLIBRARY") or "")')"
+py_instso="$("$env_py" -c 'import sysconfig; print(sysconfig.get_config_var("INSTSONAME") or "")')"
+py_lib=""
+for cand in "$py_libdir/$py_ldlib" "$py_libdir/$py_instso" \
+            "$py_libdir/libpython${py_ver}.so" \
+            "$py_libdir/libpython${py_ver}.so.1.0" \
+            "$py_base/lib/$py_ldlib" \
+            "$py_base/lib/$py_instso"; do
+  if [ -n "$cand" ] && [ -f "$cand" ]; then
+    py_lib="$cand"; break
+  fi
+done
+
+say "python base_prefix  : $py_base"
+say "python include dir  : $py_inc"
+say "python library file : ${py_lib:-<not found; cmake will probe>}"
+say "target site_dir     : $py_site"
+
+if [ ! -f "$py_inc/Python.h" ]; then
+  warn "Python.h not found at $py_inc/Python.h — the env may be a stripped
+      'install_only' Python. Extension build will fail. Install a conda
+      env with real Python (e.g. 'conda install -c conda-forge python')."
+fi
+
+cmake_py_args=(
+  -DPython3_EXECUTABLE="$env_py"
+  -DPython3_ROOT_DIR="$py_base"
+  # FIRST: allow fallback to Python3_ROOT_DIR when venv lacks headers.
+  -DPython3_FIND_VIRTUALENV=FIRST
+  -DPython3_FIND_STRATEGY=LOCATION
+)
+[ -d "$py_inc" ]  && cmake_py_args+=(-DPython3_INCLUDE_DIR="$py_inc")
+[ -n "$py_lib" ]  && cmake_py_args+=(-DPython3_LIBRARY="$py_lib")
 
 say "Configuring (Ninja, $BUILD_TYPE)"
 # RPATH = $ORIGIN gives the extension a relative runpath back to libtalosos.so
@@ -130,9 +166,7 @@ say "Configuring (Ninja, $BUILD_TYPE)"
 cmake -S "$SRC_DIR" -B "$BUILD_DIR" -GNinja \
   -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
   -DCMAKE_INSTALL_PREFIX="$env_prefix" \
-  -DPython3_EXECUTABLE="$env_py" \
-  -DPython3_ROOT_DIR="$py_base" \
-  -DPython3_FIND_VIRTUALENV=ONLY \
+  "${cmake_py_args[@]}" \
   -DTALOSOS_PYTHON_SITE_DIR_REL="$py_site" \
   -DCMAKE_INSTALL_RPATH='$ORIGIN;$ORIGIN/..;'"$env_prefix/lib" \
   -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \
