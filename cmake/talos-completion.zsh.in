@@ -1,0 +1,293 @@
+#compdef talos
+
+_talos_workspace_root() {
+  if [[ -n "${TALOSOS_WORKSPACE_ROOT:-}" && -f "${TALOSOS_WORKSPACE_ROOT}/.talos_ws" ]]; then
+    print -r -- "${TALOSOS_WORKSPACE_ROOT}"
+    return 0
+  fi
+
+  local dir="${PWD}"
+  while [[ "${dir}" != "/" ]]; do
+    if [[ -f "${dir}/.talos_ws" ]]; then
+      print -r -- "${dir}"
+      return 0
+    fi
+    dir="$(dirname "${dir}")"
+  done
+  return 1
+}
+
+_talos_package_manifests() {
+  local root
+  root="$(_talos_workspace_root)" || return 1
+  find "${root}" \
+    \( -path "${root}/build" -o -path "${root}/build/*" \
+       -o -path "${root}/install" -o -path "${root}/install/*" \
+       -o -path "${root}/logs" -o -path "${root}/logs/*" \
+       -o -path "${root}/.git" -o -path "${root}/.git/*" \) -prune -o \
+    -name package.yaml -print 2>/dev/null
+}
+
+_talos_package_names() {
+  local manifest
+  while IFS= read -r manifest; do
+    sed -n 's/^name:[[:space:]]*//p' "${manifest}" | head -n 1
+  done < <(_talos_package_manifests)
+}
+
+_talos_package_manifest() {
+  local package_name="$1"
+  local manifest current_name
+  while IFS= read -r manifest; do
+    current_name="$(sed -n 's/^name:[[:space:]]*//p' "${manifest}" | head -n 1)"
+    if [[ "${current_name}" == "${package_name}" ]]; then
+      print -r -- "${manifest}"
+      return 0
+    fi
+  done < <(_talos_package_manifests)
+  return 1
+}
+
+_talos_package_executables() {
+  local manifest
+  manifest="$(_talos_package_manifest "$1")" || return 1
+  awk '
+    /^executables:[[:space:]]*$/ {in_exec=1; next}
+    in_exec && /^[^[:space:]-]/ {in_exec=0}
+    in_exec {
+      line=$0
+      sub(/^[[:space:]]*-[[:space:]]*/, "", line)
+      if (length(line) > 0) print line
+    }
+  ' "${manifest}"
+}
+
+_talos_package_launch_files() {
+  local package_name="$1"
+  local manifest package_dir root launch_dir
+  manifest="$(_talos_package_manifest "${package_name}")" || return 1
+  package_dir="$(dirname "${manifest}")"
+  root="$(_talos_workspace_root)" || return 1
+
+  for launch_dir in "${package_dir}/launch" "${root}/install/share/${package_name}/launch"; do
+    [[ -d "${launch_dir}" ]] || continue
+    find "${launch_dir}" -maxdepth 1 -type f \( -name '*.launch.yaml' -o -name '*.launch.yml' -o -name '*.yaml' -o -name '*.yml' \) -printf '%f\n' 2>/dev/null
+  done | sort -u
+}
+
+_talos_all_launch_files() {
+  local package_name
+  while IFS= read -r package_name; do
+    _talos_package_launch_files "${package_name}"
+  done < <(_talos_package_names)
+}
+
+_talos() {
+  local -a message_types network_opts
+  message_types=(Pose Twist Imu CameraInfo Image CompressedImage LaserScan PointCloud OccupancyGrid GridMap ColorRGBA Transform TransformStamped TFMessage Path Marker MarkerArray talosos.debug_types:AddTwoIntsRequest talosos.debug_types:AddTwoIntsResponse raw)
+  network_opts=(--domain --node-namespace --mode --connect-endpoint --listen-endpoint --no-multicast --callback-threads)
+
+  if (( CURRENT == 2 )); then
+    compadd -Q -S '' -- topic service pkg build run launch plot viz
+    return
+  fi
+
+  case "${words[2]}" in
+    topic)
+      if (( CURRENT == 3 )); then
+        compadd -Q -S '' -- echo hz bw pub list info
+        return
+      fi
+      case "${words[3]}" in
+        echo)
+          if [[ ${words[CURRENT-1]} == --type ]]; then
+            compadd -Q -S '' -- "${message_types[@]}"
+            return
+          fi
+          if (( CURRENT == 4 )) && [[ ${words[CURRENT-1]} != --* ]]; then
+            local -a topics
+            topics=(${(f)"$(talos topic list --timeout 0.25 2>/dev/null)"})
+            (( ${#topics[@]} )) && compadd -Q -S '' -- "${topics[@]}"
+            return
+          fi
+          compadd -Q -S '' -- --type --count --queue-depth "${network_opts[@]}"
+          ;;
+        hz)
+          if (( CURRENT == 4 )) && [[ ${words[CURRENT-1]} != --* ]]; then
+            local -a topics
+            topics=(${(f)"$(talos topic list --timeout 0.25 2>/dev/null)"})
+            (( ${#topics[@]} )) && compadd -Q -S '' -- "${topics[@]}"
+            return
+          fi
+          compadd -Q -S '' -- --count --window --report-period --queue-depth "${network_opts[@]}"
+          ;;
+        bw)
+          if (( CURRENT == 4 )) && [[ ${words[CURRENT-1]} != --* ]]; then
+            local -a topics
+            topics=(${(f)"$(talos topic list --timeout 0.25 2>/dev/null)"})
+            (( ${#topics[@]} )) && compadd -Q -S '' -- "${topics[@]}"
+            return
+          fi
+          compadd -Q -S '' -- --count --window --report-period --queue-depth "${network_opts[@]}"
+          ;;
+        pub)
+          if [[ ${words[CURRENT-1]} == --type ]]; then
+            compadd -Q -S '' -- "${message_types[@]}"
+            return
+          fi
+          if [[ ${words[CURRENT-1]} == --raw-format ]]; then
+            compadd -Q -S '' -- utf8 hex base64
+            return
+          fi
+          if (( CURRENT == 4 )) && [[ ${words[CURRENT-1]} != --* ]]; then
+            local -a topics
+            topics=(${(f)"$(talos topic list --timeout 0.25 2>/dev/null)"})
+            (( ${#topics[@]} )) && compadd -Q -S '' -- "${topics[@]}"
+            return
+          fi
+          compadd -Q -S '' -- --type --raw-format --type-name --count --rate "${network_opts[@]}"
+          ;;
+        list)
+          compadd -Q -S '' -- --timeout --verbose --json "${network_opts[@]}"
+          ;;
+        info)
+          if (( CURRENT == 4 )) && [[ ${words[CURRENT-1]} != --* ]]; then
+            local -a topics
+            topics=(${(f)"$(talos topic list --timeout 0.25 2>/dev/null)"})
+            (( ${#topics[@]} )) && compadd -Q -S '' -- "${topics[@]}"
+            return
+          fi
+          compadd -Q -S '' -- --timeout --json "${network_opts[@]}"
+          ;;
+      esac
+      ;;
+    service)
+      if (( CURRENT == 3 )); then
+        compadd -Q -S '' -- call list info
+        return
+      fi
+      case "${words[3]}" in
+        call)
+          if [[ ${words[CURRENT-1]} == --request-type || ${words[CURRENT-1]} == --response-type ]]; then
+            compadd -Q -S '' -- "${message_types[@]}"
+            return
+          fi
+          if (( CURRENT == 4 )) && [[ ${words[CURRENT-1]} != --* ]]; then
+            local -a services
+            services=(${(f)"$(talos service list --timeout 0.25 2>/dev/null)"})
+            (( ${#services[@]} )) && compadd -Q -S '' -- "${services[@]}"
+            return
+          fi
+          compadd -Q -S '' -- --request-type --response-type --timeout-ms "${network_opts[@]}"
+          ;;
+        list)
+          compadd -Q -S '' -- --timeout --verbose --json "${network_opts[@]}"
+          ;;
+        info)
+          if (( CURRENT == 4 )) && [[ ${words[CURRENT-1]} != --* ]]; then
+            local -a services
+            services=(${(f)"$(talos service list --timeout 0.25 2>/dev/null)"})
+            (( ${#services[@]} )) && compadd -Q -S '' -- "${services[@]}"
+            return
+          fi
+          compadd -Q -S '' -- --timeout --json "${network_opts[@]}"
+          ;;
+      esac
+      ;;
+    pkg)
+      if (( CURRENT == 3 )); then
+        compadd -Q -S '' -- create list
+        return
+      fi
+      case "${words[3]}" in
+        create)
+          compadd -Q -S '' -- --type --workspace
+          ;;
+        list)
+          compadd -Q -S '' -- --verbose --json --workspace
+          ;;
+      esac
+      ;;
+    build)
+      if [[ ${words[CURRENT-1]} == --package ]]; then
+        local -a packages
+        packages=(${(f)"$(_talos_package_names)"})
+        (( ${#packages[@]} )) && compadd -Q -S '' -- "${packages[@]}"
+        return
+      fi
+      if (( CURRENT == 3 )) && [[ ${words[CURRENT-1]} != --* ]]; then
+        local -a packages
+        packages=(${(f)"$(_talos_package_names)"})
+        (( ${#packages[@]} )) && compadd -Q -S '' -- "${packages[@]}"
+        return
+      fi
+      compadd -Q -S '' -- --package --jobs --workspace
+      ;;
+    run)
+      if (( CURRENT == 3 )) && [[ ${words[CURRENT-1]} != --* ]]; then
+        local -a packages
+        packages=(${(f)"$(_talos_package_names)"})
+        (( ${#packages[@]} )) && compadd -Q -S '' -- "${packages[@]}"
+        return
+      fi
+      if (( CURRENT == 4 )) && [[ ${words[CURRENT-1]} != --* ]]; then
+        local -a executables
+        executables=(${(f)"$(_talos_package_executables "${words[3]}")"})
+        (( ${#executables[@]} )) && compadd -Q -S '' -- "${executables[@]}"
+        return
+      fi
+      compadd -Q -S '' -- --workspace
+      ;;
+    launch)
+      if (( CURRENT == 3 )) && [[ ${words[CURRENT-1]} != --* ]]; then
+        local -a packages launch_files
+        packages=(${(f)"$(_talos_package_names)"})
+        launch_files=(${(f)"$(_talos_all_launch_files)"})
+        (( ${#packages[@]} || ${#launch_files[@]} )) && compadd -Q -S '' -- "${packages[@]}" "${launch_files[@]}"
+        return
+      fi
+      if (( CURRENT == 4 )) && [[ ${words[CURRENT-1]} != --* ]]; then
+        local -a launch_files
+        launch_files=(${(f)"$(_talos_package_launch_files "${words[3]}")"})
+        (( ${#launch_files[@]} )) && compadd -Q -S '' -- "${launch_files[@]}"
+        return
+      fi
+      compadd -Q -S '' -- --workspace --dry-run --install-autostart --no-enable-autostart
+      ;;
+    plot)
+      if [[ ${words[CURRENT-1]} == --type ]]; then
+        compadd -Q -S '' -- "${message_types[@]}"
+        return
+      fi
+      if (( CURRENT == 3 )) && [[ ${words[CURRENT-1]} != --* ]]; then
+        local -a topics
+        topics=(${(f)"$(talos topic list --timeout 0.25 2>/dev/null)"})
+        (( ${#topics[@]} )) && compadd -Q -S '' -- "${topics[@]}"
+        return
+      fi
+      compadd -Q -S '' -- --type --field --history "${network_opts[@]}"
+      ;;
+    viz)
+      if [[ ${words[CURRENT-1]} == --type ]]; then
+        compadd -Q -S '' -- "${message_types[@]}"
+        return
+      fi
+      if [[ ${words[CURRENT-1]} == --renderer ]]; then
+        compadd -Q -S '' -- auto pose twist imu image overlay scan cloud camera path marker tf map
+        return
+      fi
+      if (( CURRENT == 3 )) && [[ ${words[CURRENT-1]} != --* ]]; then
+        local -a topics viz_opts
+        topics=(${(f)"$(talos topic list --timeout 0.25 2>/dev/null)"})
+        viz_opts=(--type --renderer --config --timeout "${network_opts[@]}")
+        (( ${#topics[@]} || ${#viz_opts[@]} )) && compadd -Q -S '' -- "${topics[@]}" "${viz_opts[@]}"
+        return
+      fi
+      compadd -Q -S '' -- --type --renderer --config --timeout "${network_opts[@]}"
+      ;;
+  esac
+}
+
+if typeset -f compdef >/dev/null 2>&1; then
+  compdef _talos talos
+fi

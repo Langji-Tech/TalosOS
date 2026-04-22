@@ -1,0 +1,60 @@
+# CMake / build
+/build*/
+/install/
+/_deps/
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+CTestTestfile.cmake
+Makefile
+*.cmake
+!cmake/*.cmake
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build-conda-*/
+*.so
+
+# Pybind11 extension installed in-tree (if any)
+python/talosos/_talosos_runtime*.so
+
+# Debian packaging
+*.deb
+*.dsc
+*.changes
+*.buildinfo
+/debian/files
+
+# Docs build output
+/docs/site/
+/docs.tar.bz2
+
+# Rust (zenoh-c build)
+target/
+
+# IDE / editor
+.vscode/
+.idea/
+.cache/
+.claude/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test / temporary
+*.log
+/tmp/
+*.tmp
+/talos_demo_ws/
+
+# Sample data that's too big for git / explicitly excluded
+/image.png
+/key_frame_*.pcd

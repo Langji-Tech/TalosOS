@@ -1,0 +1,258 @@
+_talos_workspace_root() {
+  if [[ -n "${TALOSOS_WORKSPACE_ROOT:-}" && -f "${TALOSOS_WORKSPACE_ROOT}/.talos_ws" ]]; then
+    printf '%s\n' "${TALOSOS_WORKSPACE_ROOT}"
+    return 0
+  fi
+
+  local dir="${PWD}"
+  while [[ "${dir}" != "/" ]]; do
+    if [[ -f "${dir}/.talos_ws" ]]; then
+      printf '%s\n' "${dir}"
+      return 0
+    fi
+    dir="$(dirname "${dir}")"
+  done
+  return 1
+}
+
+_talos_package_manifests() {
+  local root
+  root="$(_talos_workspace_root)" || return 1
+  find "${root}" \
+    \( -path "${root}/build" -o -path "${root}/build/*" \
+       -o -path "${root}/install" -o -path "${root}/install/*" \
+       -o -path "${root}/logs" -o -path "${root}/logs/*" \
+       -o -path "${root}/.git" -o -path "${root}/.git/*" \) -prune -o \
+    -name package.yaml -print 2>/dev/null
+}
+
+_talos_package_names() {
+  local manifest
+  while IFS= read -r manifest; do
+    sed -n 's/^name:[[:space:]]*//p' "${manifest}" | head -n 1
+  done < <(_talos_package_manifests)
+}
+
+_talos_package_manifest() {
+  local package_name="$1"
+  local manifest current_name
+  while IFS= read -r manifest; do
+    current_name="$(sed -n 's/^name:[[:space:]]*//p' "${manifest}" | head -n 1)"
+    if [[ "${current_name}" == "${package_name}" ]]; then
+      printf '%s\n' "${manifest}"
+      return 0
+    fi
+  done < <(_talos_package_manifests)
+  return 1
+}
+
+_talos_package_executables() {
+  local manifest
+  manifest="$(_talos_package_manifest "$1")" || return 1
+  awk '
+    /^executables:[[:space:]]*$/ {in_exec=1; next}
+    in_exec && /^[^[:space:]-]/ {in_exec=0}
+    in_exec {
+      line=$0
+      sub(/^[[:space:]]*-[[:space:]]*/, "", line)
+      if (length(line) > 0) print line
+    }
+  ' "${manifest}"
+}
+
+_talos_package_launch_files() {
+  local package_name="$1"
+  local manifest package_dir root launch_dir
+  manifest="$(_talos_package_manifest "${package_name}")" || return 1
+  package_dir="$(dirname "${manifest}")"
+  root="$(_talos_workspace_root)" || return 1
+
+  for launch_dir in "${package_dir}/launch" "${root}/install/share/${package_name}/launch"; do
+    [[ -d "${launch_dir}" ]] || continue
+    find "${launch_dir}" -maxdepth 1 -type f \( -name '*.launch.yaml' -o -name '*.launch.yml' -o -name '*.yaml' -o -name '*.yml' \) -printf '%f\n' 2>/dev/null
+  done | sort -u
+}
+
+_talos_all_launch_files() {
+  local package_name
+  while IFS= read -r package_name; do
+    _talos_package_launch_files "${package_name}"
+  done < <(_talos_package_names)
+}
+
+_talos_complete_wordlist() {
+  COMPREPLY=( $(compgen -W "$1" -- "${cur}") )
+}
+
+_talos_complete() {
+  local cur prev cmd1 cmd2
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+  cmd1="${COMP_WORDS[1]}"
+  cmd2="${COMP_WORDS[2]}"
+
+  local message_types="Pose Twist Imu CameraInfo Image CompressedImage LaserScan PointCloud OccupancyGrid GridMap ColorRGBA Transform TransformStamped TFMessage Path Marker MarkerArray talosos.debug_types:AddTwoIntsRequest talosos.debug_types:AddTwoIntsResponse raw"
+  local network_opts="--domain --node-namespace --mode --connect-endpoint --listen-endpoint --no-multicast --callback-threads"
+  local packages package_execs package_launches launch_targets
+
+  if [[ ${COMP_CWORD} -eq 1 ]]; then
+    _talos_complete_wordlist "topic service pkg build run launch plot viz"
+    return 0
+  fi
+
+  if [[ "${cmd1}" == "topic" && ${COMP_CWORD} -eq 2 ]]; then
+    _talos_complete_wordlist "echo hz bw pub list info"
+    return 0
+  fi
+
+  if [[ "${cmd1}" == "service" && ${COMP_CWORD} -eq 2 ]]; then
+    _talos_complete_wordlist "call list info"
+    return 0
+  fi
+
+  if [[ "${cmd1}" == "pkg" && ${COMP_CWORD} -eq 2 ]]; then
+    _talos_complete_wordlist "create list"
+    return 0
+  fi
+
+  case "${cmd1}:${cmd2}:${prev}" in
+    topic:echo:--type|topic:pub:--type|service:call:--request-type|service:call:--response-type|plot:*:--type|viz:*:--type)
+      _talos_complete_wordlist "${message_types}"
+      return 0
+      ;;
+    viz:*:--renderer)
+      _talos_complete_wordlist "auto pose twist imu image overlay scan cloud camera path marker tf map"
+      return 0
+      ;;
+    topic:pub:--raw-format)
+      _talos_complete_wordlist "utf8 hex base64"
+      return 0
+      ;;
+    build:*:--package)
+      packages="$(_talos_package_names)"
+      _talos_complete_wordlist "${packages}"
+      return 0
+      ;;
+    *:--mode)
+      _talos_complete_wordlist "peer client router"
+      return 0
+      ;;
+  esac
+
+  case "${cmd1}:${cmd2}" in
+    topic:echo|topic:hz|topic:bw|topic:pub|topic:info|plot:|viz:)
+      if [[ ${prev} != --* && ${COMP_CWORD} -eq 3 ]]; then
+        local topics
+        topics="$(talos topic list --timeout 0.25 2>/dev/null)"
+        _talos_complete_wordlist "${topics}"
+        return 0
+      fi
+      ;;
+    service:call|service:info)
+      if [[ ${prev} != --* && ${COMP_CWORD} -eq 3 ]]; then
+        local services
+        services="$(talos service list --timeout 0.25 2>/dev/null)"
+        _talos_complete_wordlist "${services}"
+        return 0
+      fi
+      ;;
+  esac
+
+  case "${cmd1}:${cmd2}" in
+    topic:echo)
+      _talos_complete_wordlist "--type --count --queue-depth ${network_opts}"
+      return 0
+      ;;
+    topic:hz)
+      _talos_complete_wordlist "--count --window --report-period --queue-depth ${network_opts}"
+      return 0
+      ;;
+    topic:bw)
+      _talos_complete_wordlist "--count --window --report-period --queue-depth ${network_opts}"
+      return 0
+      ;;
+    topic:pub)
+      _talos_complete_wordlist "--type --raw-format --type-name --count --rate ${network_opts}"
+      return 0
+      ;;
+    topic:list)
+      _talos_complete_wordlist "--timeout --verbose --json ${network_opts}"
+      return 0
+      ;;
+    topic:info)
+      _talos_complete_wordlist "--timeout --json ${network_opts}"
+      return 0
+      ;;
+    service:call)
+      _talos_complete_wordlist "--request-type --response-type --timeout-ms ${network_opts}"
+      return 0
+      ;;
+    service:list)
+      _talos_complete_wordlist "--timeout --verbose --json ${network_opts}"
+      return 0
+      ;;
+    service:info)
+      _talos_complete_wordlist "--timeout --json ${network_opts}"
+      return 0
+      ;;
+    pkg:create)
+      _talos_complete_wordlist "--type --workspace"
+      return 0
+      ;;
+    pkg:list)
+      _talos_complete_wordlist "--verbose --json --workspace"
+      return 0
+      ;;
+  esac
+
+  case "${cmd1}" in
+    build)
+      if [[ ${prev} != --* && ${COMP_CWORD} -eq 2 ]]; then
+        packages="$(_talos_package_names)"
+        _talos_complete_wordlist "${packages}"
+        return 0
+      fi
+      _talos_complete_wordlist "--package --jobs --workspace"
+      return 0
+      ;;
+    run)
+      if [[ ${prev} != --* && ${COMP_CWORD} -eq 2 ]]; then
+        packages="$(_talos_package_names)"
+        _talos_complete_wordlist "${packages}"
+        return 0
+      fi
+      if [[ ${prev} != --* && ${COMP_CWORD} -eq 3 ]]; then
+        package_execs="$(_talos_package_executables "${COMP_WORDS[2]}")"
+        _talos_complete_wordlist "${package_execs}"
+        return 0
+      fi
+      _talos_complete_wordlist "--workspace"
+      return 0
+      ;;
+    launch)
+      if [[ ${prev} != --* && ${COMP_CWORD} -eq 2 ]]; then
+        packages="$(_talos_package_names)"
+        launch_targets="$(_talos_all_launch_files)"
+        _talos_complete_wordlist "${packages} ${launch_targets}"
+        return 0
+      fi
+      if [[ ${prev} != --* && ${COMP_CWORD} -eq 3 ]]; then
+        package_launches="$(_talos_package_launch_files "${COMP_WORDS[2]}")"
+        _talos_complete_wordlist "${package_launches}"
+        return 0
+      fi
+      _talos_complete_wordlist "--workspace --dry-run --install-autostart --no-enable-autostart"
+      return 0
+      ;;
+    plot)
+      _talos_complete_wordlist "--type --field --history ${network_opts}"
+      return 0
+      ;;
+    viz)
+      _talos_complete_wordlist "--type --renderer --config --timeout ${network_opts}"
+      return 0
+      ;;
+  esac
+}
+
+complete -F _talos_complete talos

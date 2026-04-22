@@ -1,0 +1,16 @@
+#!/bin/sh
+# TalosOS .deb postrm — runs after removal / purge.
+
+set -e
+
+case "$1" in
+    remove|purge)
+        if command -v ldconfig >/dev/null 2>&1; then
+            ldconfig || true
+        fi
+        ;;
+    *)
+        ;;
+esac
+
+exit 0

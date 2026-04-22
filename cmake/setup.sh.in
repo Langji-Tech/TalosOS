@@ -1,0 +1,45 @@
+if [ -n "${_TALOSOS_SETUP_SH_INCLUDED:-}" ]; then
+  return 0
+fi
+_TALOSOS_SETUP_SH_INCLUDED=1
+
+_talosos_prepend_env() {
+  _talosos_var_name="$1"
+  _talosos_var_value="$2"
+  eval "_talosos_current_value=\${${_talosos_var_name}:-}"
+  if [ -z "${_talosos_current_value}" ]; then
+    eval "export ${_talosos_var_name}='${_talosos_var_value}'"
+  else
+    case ":${_talosos_current_value}:" in
+      *":${_talosos_var_value}:"*) ;;
+      *) eval "export ${_talosos_var_name}='${_talosos_var_value}:${_talosos_current_value}'" ;;
+    esac
+  fi
+}
+
+if [ -n "${_TALOSOS_SETUP_CALLER:-}" ]; then
+  _talosos_script_path="${_TALOSOS_SETUP_CALLER}"
+elif [ -n "${BASH_SOURCE:-}" ]; then
+  _talosos_script_path="${BASH_SOURCE[0]}"
+else
+  _talosos_script_path="$0"
+fi
+
+_talosos_script_dir="$(CDPATH= cd -- "$(dirname -- "${_talosos_script_path}")" && pwd)"
+export TALOSOS_ROOT="${_talosos_script_dir}"
+
+_talosos_prepend_env PATH "${TALOSOS_ROOT}/@CMAKE_INSTALL_BINDIR@"
+_talosos_prepend_env LD_LIBRARY_PATH "${TALOSOS_ROOT}/@CMAKE_INSTALL_LIBDIR@"
+_talosos_prepend_env PKG_CONFIG_PATH "${TALOSOS_ROOT}/@CMAKE_INSTALL_LIBDIR@/pkgconfig"
+_talosos_prepend_env CMAKE_PREFIX_PATH "${TALOSOS_ROOT}"
+
+if [ -n "@TALOSOS_PYTHON_SITE_DIR_REL@" ] && \
+   [ -d "${TALOSOS_ROOT}/@TALOSOS_PYTHON_SITE_DIR_REL@" ]; then
+  _talosos_prepend_env PYTHONPATH "${TALOSOS_ROOT}/@TALOSOS_PYTHON_SITE_DIR_REL@"
+fi
+
+unset _talosos_script_path
+unset _talosos_script_dir
+unset _talosos_current_value
+unset _talosos_var_name
+unset _talosos_var_value

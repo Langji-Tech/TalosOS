@@ -1,0 +1,26 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+find_dependency(Eigen3 REQUIRED)
+find_dependency(Threads REQUIRED)
+
+include("${CMAKE_CURRENT_LIST_DIR}/TalosOSTargets.cmake")
+if(EXISTS "${CMAKE_CURRENT_LIST_DIR}/TalosMessages.cmake")
+  include("${CMAKE_CURRENT_LIST_DIR}/TalosMessages.cmake")
+endif()
+
+# Attach the install lib directory to TalosOS::talosos as an RPATH so downstream
+# binaries can find libtalosos.so AND libzenohc.so without requiring
+# LD_LIBRARY_PATH to be set at runtime. PACKAGE_PREFIX_DIR is computed by
+# @PACKAGE_INIT@ to point at the TalosOS install prefix.
+if(TARGET TalosOS::talosos)
+  set(_talosos_lib_dir "${PACKAGE_PREFIX_DIR}/@CMAKE_INSTALL_LIBDIR@")
+  set_property(TARGET TalosOS::talosos APPEND PROPERTY
+    INTERFACE_LINK_OPTIONS
+      "LINKER:-rpath,${_talosos_lib_dir}"
+  )
+  unset(_talosos_lib_dir)
+endif()
+
+check_required_components(TalosOS)

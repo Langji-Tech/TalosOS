@@ -1,0 +1,7 @@
+_TALOSOS_SETUP_CALLER="${BASH_SOURCE[0]}"
+. "$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/setup.sh"
+if [ -n "@TALOSOS_COMPLETION_BASH_REL@" ] && \
+   [ -f "$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/@TALOSOS_COMPLETION_BASH_REL@" ]; then
+  . "$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/@TALOSOS_COMPLETION_BASH_REL@"
+fi
+unset _TALOSOS_SETUP_CALLER

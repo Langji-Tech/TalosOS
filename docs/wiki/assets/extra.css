@@ -1,0 +1,30 @@
+/* TalosOS wiki — minimal accent overrides only.
+   Keep this file tiny and touch NO layout properties (display/grid/flex/
+   position/width/margin). Theme layout is left entirely to mkdocs-material. */
+
+/* Subtle cyan accent everywhere (link hover, caret, focus ring). */
+:root {
+  --md-accent-fg-color: #00a9e0;
+}
+
+/* Tables: header row reads as a proper heading strip. */
+.md-typeset table:not([class]) th {
+  background: rgba(30, 58, 104, 0.08);
+  font-weight: 600;
+}
+
+/* Code fences get a soft left rule so they pop in dense prose. */
+.md-typeset .highlight {
+  border-left: 2px solid rgba(0, 169, 224, 0.35);
+}
+
+/* Admonition titles a touch bolder. */
+.md-typeset .admonition > .admonition-title,
+.md-typeset details > summary {
+  font-weight: 600;
+}
+
+/* Mermaid diagrams: center horizontally. */
+.md-typeset .mermaid {
+  text-align: center;
+}

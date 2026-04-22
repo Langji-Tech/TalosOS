@@ -1,0 +1,34 @@
+#!/bin/sh
+# TalosOS .deb postinst — runs as root after files land under /opt/talosos.
+
+set -e
+
+PREFIX="@CMAKE_INSTALL_PREFIX@"
+
+# libtalosos.so uses RUNPATH=$ORIGIN so it finds libzenohc.so in the same dir.
+# ldconfig is not strictly required, but refreshes the cache for anyone who
+# prepends /opt/talosos/lib to LD_LIBRARY_PATH.
+if command -v ldconfig >/dev/null 2>&1; then
+    ldconfig || true
+fi
+
+cat <<EOF
+
+  ┌──────────────────────────────────────────────────────────────┐
+  │  TalosOS installed at ${PREFIX}
+  │
+  │  To activate in your shell:
+  │      source ${PREFIX}/setup.bash     # bash
+  │      source ${PREFIX}/setup.zsh      # zsh
+  │
+  │  Then:
+  │      talos --version
+  │      talos pkg create my_pkg --with-node
+  │
+  │  Docs:  ${PREFIX}/share/doc/talosos/   (if shipped)
+  │  Issues → https://example.com/talosos
+  └──────────────────────────────────────────────────────────────┘
+
+EOF
+
+exit 0

@@ -1,0 +1,127 @@
+site_name: TalosOS 文档
+site_description: 由杭州朗极智能科技有限公司打造的机器人操作系统。基于 zenoh-cpp 的 ROS1 风格、C++/Python 双语言、CDR 兼容。
+site_url: https://example.com/talosos/
+docs_dir: wiki
+copyright: Copyright &copy; 2026 杭州朗极智能科技有限公司 · Hangzhou Langji Intelligent Technology Co., Ltd.
+
+theme:
+  name: material
+  language: zh
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.tracking
+    - toc.follow
+    - toc.integrate
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - search.suggest
+    - search.highlight
+    - search.share
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: cyan
+      toggle:
+        icon: material/weather-sunny
+        name: 切换到暗色模式
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: cyan
+      toggle:
+        icon: material/weather-night
+        name: 切换到亮色模式
+  icon:
+    logo: material/robot-industrial
+    repo: fontawesome/brands/github
+  font:
+    text: Inter
+    code: JetBrains Mono
+
+extra_css:
+  - assets/extra.css
+
+extra:
+  generator: false
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/
+      name: TalosOS 仓库
+
+plugins:
+  - search:
+      lang:
+        - zh
+        - en
+      separator: '[\s\-\.,!?,。！？、；：（）「」『』]+'
+
+markdown_extensions:
+  - admonition
+  - abbr
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 3
+  - pymdownx.details
+  - pymdownx.caret
+  - pymdownx.mark
+  - pymdownx.tilde
+  - pymdownx.keys
+  - pymdownx.smartsymbols
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+nav:
+  - 首页: index.md
+  - 上手:
+      - 安装: installation.md
+      - 速查卡 / Cheatsheet: cheatsheet.md
+      - 常见问题 FAQ: faq.md
+  - 教程:
+      - 功能包与构建: tutorials/packages.md
+      - 示例一 · 话题编程: tutorials/topic.md
+      - 示例二 · 服务编程: tutorials/service.md
+      - 示例三 · 动作编程: tutorials/action.md
+      - 示例四 · 自定义消息: tutorials/custom-messages.md
+      - 示例五 · 图像传输 / cv_bridge: tutorials/image-transport.md
+      - 示例六 · 点云传输: tutorials/pointcloud-io.md
+      - 示例七 · 其他数据类型: tutorials/more-data.md
+      - 定时与计时（Rate / Timer / tic-toc）: tutorials/timing.md
+      - Launch 启动文件: tutorials/launch.md
+      - rqt / viz 工具箱: tutorials/rqt.md
+      - 进阶：图像延时 / 丢帧基准: tutorials/image-bench.md
+  - 参考手册:
+      - CLI 命令: reference/cli.md
+      - 消息类型: reference/messages.md
+      - 架构: reference/architecture.md
+      - 性能基准: reference/benchmarks.md
+  - 部署:
+      - 局域网 / 跨设备: deployment/lan.md
+  - 关于:
+      - 关于朗极智能: about.md
