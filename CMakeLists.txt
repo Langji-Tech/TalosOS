@@ -86,6 +86,67 @@ if(TALOSOS_BUILD_PYTHON)
   # NOT QUIET so users see exactly what gets found (and why not, if not).
   find_package(Python3 COMPONENTS Interpreter Development.Module)
 
+  # Fallback: CMake < 3.18 doesn't recognise the "Artifacts Specification"
+  # variables Python3_INCLUDE_DIR / Python3_LIBRARY.  When FindPython3
+  # fails to locate Development.Module, try to recover:
+  #   1) from -DPython3_INCLUDE_DIR / -DPython3_LIBRARY (install scripts), or
+  #   2) by querying the interpreter via sysconfig (works for install_opt.sh
+  #      and any case where the interpreter is on PATH).
+  if(NOT Python3_Development.Module_FOUND AND Python3_Interpreter_FOUND)
+    # If caller didn't supply explicit paths, ask the interpreter.
+    if(NOT DEFINED Python3_INCLUDE_DIR)
+      execute_process(
+              COMMAND "${Python3_EXECUTABLE}" -c
+              "import sysconfig; print(sysconfig.get_paths()['include'])"
+              OUTPUT_VARIABLE _py_inc OUTPUT_STRIP_TRAILING_WHITESPACE
+              RESULT_VARIABLE _py_inc_rc ERROR_QUIET)
+      if(_py_inc_rc EQUAL 0 AND EXISTS "${_py_inc}/Python.h")
+        set(Python3_INCLUDE_DIR "${_py_inc}")
+      endif()
+    endif()
+    if(NOT DEFINED Python3_LIBRARY)
+      execute_process(
+              COMMAND "${Python3_EXECUTABLE}" -c "
+import sysconfig, os, sys
+libdir  = sysconfig.get_config_var('LIBDIR') or ''
+ldlib   = sysconfig.get_config_var('LDLIBRARY') or ''
+inst    = sysconfig.get_config_var('INSTSONAME') or ''
+ver     = sysconfig.get_config_var('LDVERSION') or f'{sys.version_info.major}.{sys.version_info.minor}'
+base    = sys.base_prefix
+multi   = sysconfig.get_config_var('MULTIARCH') or ''
+libpl   = sysconfig.get_config_var('LIBPL') or ''
+# Debian/Ubuntu put libpython in /usr/lib/<multiarch>/, not /usr/lib/.
+multidir = os.path.join(libdir, multi) if multi else ''
+for c in [os.path.join(libdir, ldlib),
+          os.path.join(libdir, inst),
+          os.path.join(libdir, f'libpython{ver}.so'),
+          os.path.join(multidir, ldlib),
+          os.path.join(multidir, inst),
+          os.path.join(multidir, f'libpython{ver}.so'),
+          os.path.join(libpl, ldlib),
+          os.path.join(base, 'lib', ldlib),
+          os.path.join(base, 'lib', inst),
+          os.path.join(base, 'lib', f'libpython{ver}.so')]:
+    if c and os.path.isfile(c):
+        print(c); break"
+              OUTPUT_VARIABLE _py_lib OUTPUT_STRIP_TRAILING_WHITESPACE
+              RESULT_VARIABLE _py_lib_rc ERROR_QUIET)
+      if(_py_lib_rc EQUAL 0 AND EXISTS "${_py_lib}")
+        set(Python3_LIBRARY "${_py_lib}")
+      endif()
+    endif()
+    # Apply the discovered / caller-supplied paths.
+    if(DEFINED Python3_INCLUDE_DIR AND EXISTS "${Python3_INCLUDE_DIR}/Python.h"
+            AND DEFINED Python3_LIBRARY AND EXISTS "${Python3_LIBRARY}")
+      message(STATUS "  FindPython3 missed Development.Module — using fallback paths")
+      message(STATUS "    Python3_INCLUDE_DIR = ${Python3_INCLUDE_DIR}")
+      message(STATUS "    Python3_LIBRARY     = ${Python3_LIBRARY}")
+      set(Python3_INCLUDE_DIRS "${Python3_INCLUDE_DIR}" CACHE PATH "" FORCE)
+      set(Python3_LIBRARIES    "${Python3_LIBRARY}"     CACHE FILEPATH "" FORCE)
+      set(Python3_Development.Module_FOUND TRUE)
+    endif()
+  endif()
+
   # 把关键 Python3_* 变量打到 configure 日志里，方便排查 uv / venv / conda
   # 下 Development.Module 探测失败的情况。
   message(STATUS "  Python3_EXECUTABLE           = ${Python3_EXECUTABLE}")
@@ -98,11 +159,11 @@ if(TALOSOS_BUILD_PYTHON)
 
   if(Python3_Interpreter_FOUND)
     execute_process(
-      COMMAND "${Python3_EXECUTABLE}" -c
-              "import pybind11, sys; sys.stdout.write(pybind11.get_cmake_dir())"
-      OUTPUT_VARIABLE _pybind11_dir
-      RESULT_VARIABLE _pybind11_rc
-      ERROR_VARIABLE  _pybind11_err
+            COMMAND "${Python3_EXECUTABLE}" -c
+            "import pybind11, sys; sys.stdout.write(pybind11.get_cmake_dir())"
+            OUTPUT_VARIABLE _pybind11_dir
+            RESULT_VARIABLE _pybind11_rc
+            ERROR_VARIABLE  _pybind11_err
     )
     if(_pybind11_rc EQUAL 0 AND _pybind11_dir)
       message(STATUS "  pybind11 cmake dir from pip = ${_pybind11_dir}")
@@ -110,53 +171,53 @@ if(TALOSOS_BUILD_PYTHON)
       find_package(pybind11 CONFIG)
     else()
       message(WARNING
-        "TalosOS Python runtime: pybind11 not importable in ${Python3_EXECUTABLE}\n"
-        "  install it with:\n"
-        "    ${Python3_EXECUTABLE} -m pip install pybind11\n"
-        "  stderr: ${_pybind11_err}")
+              "TalosOS Python runtime: pybind11 not importable in ${Python3_EXECUTABLE}\n"
+              "  install it with:\n"
+              "    ${Python3_EXECUTABLE} -m pip install pybind11\n"
+              "  stderr: ${_pybind11_err}")
     endif()
   endif()
 endif()
 
 add_library(talosos SHARED
-  src/node.cc
-  src/logging.cc
+        src/node.cc
+        src/logging.cc
 )
 
 add_library(TalosOS::talosos ALIAS talosos)
 
 target_include_directories(talosos
-  PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+        PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
 target_link_libraries(talosos
-  PUBLIC
-    Eigen3::Eigen
-    pthread
-  PRIVATE
-    zenohcxx::zenohc
-    Threads::Threads
+        PUBLIC
+        Eigen3::Eigen
+        pthread
+        PRIVATE
+        zenohcxx::zenohc
+        Threads::Threads
 )
 
 set_target_properties(talosos PROPERTIES
-  OUTPUT_NAME talosos
-  SOVERSION ${PROJECT_VERSION_MAJOR}
-  VERSION   ${PROJECT_VERSION}
-  # Look for sibling libs (libzenohc.so) next to libtalosos.so at runtime
-  # so downstream binaries don't need LD_LIBRARY_PATH or an extra rpath.
-  INSTALL_RPATH "\$ORIGIN"
-  # Same for the in-tree build so tests + examples run directly.
-  BUILD_WITH_INSTALL_RPATH FALSE
-  BUILD_RPATH "\$ORIGIN"
+        OUTPUT_NAME talosos
+        SOVERSION ${PROJECT_VERSION_MAJOR}
+        VERSION   ${PROJECT_VERSION}
+        # Look for sibling libs (libzenohc.so) next to libtalosos.so at runtime
+        # so downstream binaries don't need LD_LIBRARY_PATH or an extra rpath.
+        INSTALL_RPATH "\$ORIGIN"
+        # Same for the in-tree build so tests + examples run directly.
+        BUILD_WITH_INSTALL_RPATH FALSE
+        BUILD_RPATH "\$ORIGIN"
 )
 
 if(TALOSOS_BUILD_PYTHON AND pybind11_FOUND AND Python3_Development.Module_FOUND)
   pybind11_add_module(_talosos_runtime MODULE src/python/bindings.cc)
   target_link_libraries(_talosos_runtime PRIVATE talosos)
   set_target_properties(_talosos_runtime PROPERTIES
-    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/python"
+          LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/python"
   )
   set(TALOSOS_RUNTIME_BUILT ON)
   message(STATUS "TalosOS Python runtime: _talosos_runtime WILL BE BUILT")
@@ -169,33 +230,33 @@ elseif(TALOSOS_BUILD_PYTHON)
   endif()
   if(NOT Python3_Development.Module_FOUND)
     string(APPEND _talos_why
-      "\n  - Python3 Development.Module not found (need Python.h + libpython)"
-      "\n    try: -DPython3_ROOT_DIR=$(python -c 'import sys;print(sys.base_prefix)')"
-      "\n    or:  -DPython3_INCLUDE_DIR=..., -DPython3_LIBRARY=...")
+            "\n  - Python3 Development.Module not found (need Python.h + libpython)"
+            "\n    try: -DPython3_ROOT_DIR=$(python -c 'import sys;print(sys.base_prefix)')"
+            "\n    or:  -DPython3_INCLUDE_DIR=..., -DPython3_LIBRARY=...")
   endif()
   if(NOT pybind11_FOUND)
     string(APPEND _talos_why
-      "\n  - pybind11 not importable by ${Python3_EXECUTABLE}"
-      "\n    fix: ${Python3_EXECUTABLE} -m pip install pybind11")
+            "\n  - pybind11 not importable by ${Python3_EXECUTABLE}"
+            "\n    fix: ${Python3_EXECUTABLE} -m pip install pybind11")
   endif()
   message(WARNING
-    "TalosOS Python runtime: _talosos_runtime WILL NOT BE BUILT.${_talos_why}\n"
-    "  Consequence: `from talosos.runtime import Node` will fail at runtime;\n"
-    "  `talos` CLI that uses the runtime (rqt/viz dashboard / Python publisher)\n"
-    "  won't work. Pure-python subscription decoding still works.")
+          "TalosOS Python runtime: _talosos_runtime WILL NOT BE BUILT.${_talos_why}\n"
+          "  Consequence: `from talosos.runtime import Node` will fail at runtime;\n"
+          "  `talos` CLI that uses the runtime (rqt/viz dashboard / Python publisher)\n"
+          "  won't work. Pure-python subscription decoding still works.")
 endif()
 
 add_executable(talosos_tool src/tool/talosos_tool.cc)
 target_link_libraries(talosos_tool PRIVATE
-  zenohcxx::zenohc
-  Threads::Threads
+        zenohcxx::zenohc
+        Threads::Threads
 )
 set_target_properties(talosos_tool PROPERTIES
-  OUTPUT_NAME talosos_tool
+        OUTPUT_NAME talosos_tool
 )
 
 install(TARGETS talosos_tool
-  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
 if(TALOSOS_BUILD_EXAMPLES)
@@ -207,20 +268,20 @@ endif()
 # ----------------------------------------------------------------------------
 
 install(TARGETS talosos
-  EXPORT TalosOSTargets
-  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-  RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        EXPORT TalosOSTargets
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
 # Ship libzenohc.so alongside libtalosos.so when we built zenoh from the bundled
 # source — the Rust-built artifact lives outside the usual install() tree.
 if(TALOSOS_USING_BUNDLED_ZENOH)
   set(_TALOSOS_ZENOHC_SO
-      "${CMAKE_CURRENT_BINARY_DIR}/third_party/zenoh-c/release/target/release/libzenohc.so")
+          "${CMAKE_CURRENT_BINARY_DIR}/third_party/zenoh-c/release/target/release/libzenohc.so")
   if(EXISTS "${_TALOSOS_ZENOHC_SO}")
     install(FILES "${_TALOSOS_ZENOHC_SO}"
-      DESTINATION ${CMAKE_INSTALL_LIBDIR})
+            DESTINATION ${CMAKE_INSTALL_LIBDIR})
   else()
     install(CODE "
       set(_src \"${CMAKE_CURRENT_BINARY_DIR}/third_party/zenoh-c/release/target/release/libzenohc.so\")
@@ -231,40 +292,40 @@ if(TALOSOS_USING_BUNDLED_ZENOH)
 endif()
 
 install(DIRECTORY include/
-  DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-  FILES_MATCHING PATTERN "*.h"
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+        FILES_MATCHING PATTERN "*.h"
 )
 
 set(TALOSOS_CMAKE_CONFIG_DIR "${CMAKE_INSTALL_LIBDIR}/cmake/TalosOS")
 
 install(EXPORT TalosOSTargets
-  FILE TalosOSTargets.cmake
-  NAMESPACE TalosOS::
-  DESTINATION ${TALOSOS_CMAKE_CONFIG_DIR}
+        FILE TalosOSTargets.cmake
+        NAMESPACE TalosOS::
+        DESTINATION ${TALOSOS_CMAKE_CONFIG_DIR}
 )
 
 configure_package_config_file(cmake/TalosOSConfig.cmake.in
-  ${CMAKE_CURRENT_BINARY_DIR}/TalosOSConfig.cmake
-  INSTALL_DESTINATION ${TALOSOS_CMAKE_CONFIG_DIR}
+        ${CMAKE_CURRENT_BINARY_DIR}/TalosOSConfig.cmake
+        INSTALL_DESTINATION ${TALOSOS_CMAKE_CONFIG_DIR}
 )
 
 write_basic_package_version_file(
-  ${CMAKE_CURRENT_BINARY_DIR}/TalosOSConfigVersion.cmake
-  VERSION ${PROJECT_VERSION}
-  COMPATIBILITY SameMinorVersion
+        ${CMAKE_CURRENT_BINARY_DIR}/TalosOSConfigVersion.cmake
+        VERSION ${PROJECT_VERSION}
+        COMPATIBILITY SameMinorVersion
 )
 
 install(FILES
-  ${CMAKE_CURRENT_BINARY_DIR}/TalosOSConfig.cmake
-  ${CMAKE_CURRENT_BINARY_DIR}/TalosOSConfigVersion.cmake
-  cmake/TalosMessages.cmake
-  DESTINATION ${TALOSOS_CMAKE_CONFIG_DIR}
+        ${CMAKE_CURRENT_BINARY_DIR}/TalosOSConfig.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/TalosOSConfigVersion.cmake
+        cmake/TalosMessages.cmake
+        DESTINATION ${TALOSOS_CMAKE_CONFIG_DIR}
 )
 
 # Co-locate the .msg generator with the CMake config so TalosMessages.cmake can
 # find it via ${CMAKE_CURRENT_LIST_DIR}/tools/... after install.
 install(PROGRAMS tools/talos_msg_gen.py
-  DESTINATION ${TALOSOS_CMAKE_CONFIG_DIR}/tools
+        DESTINATION ${TALOSOS_CMAKE_CONFIG_DIR}/tools
 )
 
 # ---- Python package + talos CLI wrapper ----
@@ -287,37 +348,37 @@ if(TALOSOS_BUILD_PYTHON AND Python3_Interpreter_FOUND)
     # symlink / uv 内核都正确（不能用 Python3_EXECUTABLE 的 REALPATH，
     # 因为 uv 的 .venv/bin/python 会解到 venv 外面的真 python）。
     execute_process(
-      COMMAND "${Python3_EXECUTABLE}" -c
-              "import os,sys; print(os.path.realpath(sys.prefix))"
-      OUTPUT_VARIABLE _py_sys_prefix
-      OUTPUT_STRIP_TRAILING_WHITESPACE
-      RESULT_VARIABLE _py_rc)
+            COMMAND "${Python3_EXECUTABLE}" -c
+            "import os,sys; print(os.path.realpath(sys.prefix))"
+            OUTPUT_VARIABLE _py_sys_prefix
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE _py_rc)
     get_filename_component(_prefix_real "${CMAKE_INSTALL_PREFIX}" REALPATH)
     if(_py_rc EQUAL 0 AND _py_sys_prefix STREQUAL _prefix_real)
       set(TALOSOS_PYTHON_SITE_DIR_REL
-          "lib/python${Python3_VERSION_MAJOR}.${Python3_VERSION_MINOR}/site-packages")
+              "lib/python${Python3_VERSION_MAJOR}.${Python3_VERSION_MINOR}/site-packages")
       message(STATUS
-        "TalosOS Python: venv/conda detected (sys.prefix=${_py_sys_prefix}) → ${TALOSOS_PYTHON_SITE_DIR_REL}")
+              "TalosOS Python: venv/conda detected (sys.prefix=${_py_sys_prefix}) → ${TALOSOS_PYTHON_SITE_DIR_REL}")
     else()
       set(TALOSOS_PYTHON_SITE_DIR_REL "lib/python3/dist-packages")
       message(STATUS
-        "TalosOS Python: system install → ${TALOSOS_PYTHON_SITE_DIR_REL}")
+              "TalosOS Python: system install → ${TALOSOS_PYTHON_SITE_DIR_REL}")
     endif()
   else()
     message(STATUS
-      "TalosOS Python: using override TALOSOS_PYTHON_SITE_DIR_REL=${TALOSOS_PYTHON_SITE_DIR_REL}")
+            "TalosOS Python: using override TALOSOS_PYTHON_SITE_DIR_REL=${TALOSOS_PYTHON_SITE_DIR_REL}")
   endif()
 
   install(DIRECTORY python/talosos/
-    DESTINATION ${TALOSOS_PYTHON_SITE_DIR_REL}/talosos
-    FILES_MATCHING
-      PATTERN "*.py"
-      PATTERN "__pycache__" EXCLUDE
+          DESTINATION ${TALOSOS_PYTHON_SITE_DIR_REL}/talosos
+          FILES_MATCHING
+          PATTERN "*.py"
+          PATTERN "__pycache__" EXCLUDE
   )
 
   if(TALOSOS_RUNTIME_BUILT)
     install(TARGETS _talosos_runtime
-      LIBRARY DESTINATION ${TALOSOS_PYTHON_SITE_DIR_REL}/talosos
+            LIBRARY DESTINATION ${TALOSOS_PYTHON_SITE_DIR_REL}/talosos
     )
   endif()
 endif()
@@ -328,21 +389,21 @@ set(TALOSOS_COMPLETION_BASH_REL "share/talosos/talos-completion.bash")
 set(TALOSOS_COMPLETION_ZSH_REL  "share/talosos/talos-completion.zsh")
 
 configure_file(cmake/talos-completion.bash.in
-  ${CMAKE_CURRENT_BINARY_DIR}/talos-completion.bash @ONLY)
+        ${CMAKE_CURRENT_BINARY_DIR}/talos-completion.bash @ONLY)
 configure_file(cmake/talos-completion.zsh.in
-  ${CMAKE_CURRENT_BINARY_DIR}/talos-completion.zsh @ONLY)
+        ${CMAKE_CURRENT_BINARY_DIR}/talos-completion.zsh @ONLY)
 
 install(FILES
-  ${CMAKE_CURRENT_BINARY_DIR}/talos-completion.bash
-  ${CMAKE_CURRENT_BINARY_DIR}/talos-completion.zsh
-  DESTINATION share/talosos
+        ${CMAKE_CURRENT_BINARY_DIR}/talos-completion.bash
+        ${CMAKE_CURRENT_BINARY_DIR}/talos-completion.zsh
+        DESTINATION share/talosos
 )
 
 # talos CLI launcher (a thin Python shim generated from cmake/talos.in).
 configure_file(cmake/talos.in
-  ${CMAKE_CURRENT_BINARY_DIR}/talos @ONLY)
+        ${CMAKE_CURRENT_BINARY_DIR}/talos @ONLY)
 install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/talos
-  DESTINATION ${CMAKE_INSTALL_BINDIR}
+        DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
 # Setup scripts — placed at prefix root so `source /opt/talosos/setup.bash`
@@ -352,19 +413,19 @@ configure_file(cmake/setup.bash.in ${CMAKE_CURRENT_BINARY_DIR}/setup.bash @ONLY)
 configure_file(cmake/setup.zsh.in  ${CMAKE_CURRENT_BINARY_DIR}/setup.zsh  @ONLY)
 
 install(FILES
-  ${CMAKE_CURRENT_BINARY_DIR}/setup.sh
-  ${CMAKE_CURRENT_BINARY_DIR}/setup.bash
-  ${CMAKE_CURRENT_BINARY_DIR}/setup.zsh
-  DESTINATION .
+        ${CMAKE_CURRENT_BINARY_DIR}/setup.sh
+        ${CMAKE_CURRENT_BINARY_DIR}/setup.bash
+        ${CMAKE_CURRENT_BINARY_DIR}/setup.zsh
+        DESTINATION .
 )
 
 # Ship Python example scripts so users can copy-run them post-install.
 install(DIRECTORY examples/python/
-  DESTINATION share/talosos/examples/python
-  FILES_MATCHING
-    PATTERN "*.py"
-    PATTERN "*.md"
-    PATTERN "__pycache__" EXCLUDE
+        DESTINATION share/talosos/examples/python
+        FILES_MATCHING
+        PATTERN "*.py"
+        PATTERN "*.md"
+        PATTERN "__pycache__" EXCLUDE
 )
 
 # ----------------------------------------------------------------------------
@@ -392,9 +453,9 @@ if(UNIX AND NOT APPLE)
   set(CPACK_PACKAGE_HOMEPAGE_URL "https://example.com/talosos")
 
   set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
-      "Lightweight ROS1-style robot OS on zenoh-cpp")
+          "Lightweight ROS1-style robot OS on zenoh-cpp")
   set(CPACK_PACKAGE_DESCRIPTION
-      "TalosOS is a lightweight ROS1-style robot operating system built
+          "TalosOS is a lightweight ROS1-style robot operating system built
  on Eclipse Zenoh for transport. Supplies Publisher / Subscription /
  Service / Action primitives, CDR-compatible messages (interoperable
  with ROS2 and Foxglove), a talos CLI (pkg / build / run / topic /
@@ -407,10 +468,10 @@ if(UNIX AND NOT APPLE)
 
   # Architecture — ask dpkg for the native triple.
   execute_process(
-    COMMAND dpkg --print-architecture
-    OUTPUT_VARIABLE CPACK_DEBIAN_PACKAGE_ARCHITECTURE
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_QUIET
+          COMMAND dpkg --print-architecture
+          OUTPUT_VARIABLE CPACK_DEBIAN_PACKAGE_ARCHITECTURE
+          OUTPUT_STRIP_TRAILING_WHITESPACE
+          ERROR_QUIET
   )
   if(NOT CPACK_DEBIAN_PACKAGE_ARCHITECTURE)
     set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "amd64")
@@ -418,35 +479,35 @@ if(UNIX AND NOT APPLE)
 
   # Tag the .deb with ubuntu release codename so multiple builds can coexist.
   execute_process(
-    COMMAND lsb_release -cs
-    OUTPUT_VARIABLE _TALOSOS_UBUNTU_CODENAME
-    OUTPUT_STRIP_TRAILING_WHITESPACE
-    ERROR_QUIET
+          COMMAND lsb_release -cs
+          OUTPUT_VARIABLE _TALOSOS_UBUNTU_CODENAME
+          OUTPUT_STRIP_TRAILING_WHITESPACE
+          ERROR_QUIET
   )
   if(_TALOSOS_UBUNTU_CODENAME)
     set(CPACK_PACKAGE_FILE_NAME
-        "${CPACK_PACKAGE_NAME}_${CPACK_PACKAGE_VERSION}-${_TALOSOS_UBUNTU_CODENAME}_${CPACK_DEBIAN_PACKAGE_ARCHITECTURE}")
+            "${CPACK_PACKAGE_NAME}_${CPACK_PACKAGE_VERSION}-${_TALOSOS_UBUNTU_CODENAME}_${CPACK_DEBIAN_PACKAGE_ARCHITECTURE}")
   else()
     set(CPACK_PACKAGE_FILE_NAME
-        "${CPACK_PACKAGE_NAME}_${CPACK_PACKAGE_VERSION}_${CPACK_DEBIAN_PACKAGE_ARCHITECTURE}")
+            "${CPACK_PACKAGE_NAME}_${CPACK_PACKAGE_VERSION}_${CPACK_DEBIAN_PACKAGE_ARCHITECTURE}")
   endif()
 
   # Hard runtime dependencies. shlibdeps adds precise libc / libstdc++ pins.
   set(CPACK_DEBIAN_PACKAGE_DEPENDS
-      "python3 (>= 3.8), python3-yaml")
+          "python3 (>= 3.8), python3-yaml")
   set(CPACK_DEBIAN_PACKAGE_RECOMMENDS
-      "python3-pybind11, python3-matplotlib, python3-pyqt5, libopencv-dev, cmake (>= 3.16)")
+          "python3-pybind11, python3-matplotlib, python3-pyqt5, libopencv-dev, cmake (>= 3.16)")
   set(CPACK_DEBIAN_PACKAGE_SUGGESTS
-      "python3-numpy, rustc")
+          "python3-numpy, rustc")
   set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
 
   # Postinst / postrm for user-friendly install output + ldconfig hook.
   configure_file(${CMAKE_CURRENT_SOURCE_DIR}/cmake/deb-postinst.in
-                 ${CMAKE_CURRENT_BINARY_DIR}/deb/postinst @ONLY)
+          ${CMAKE_CURRENT_BINARY_DIR}/deb/postinst @ONLY)
   configure_file(${CMAKE_CURRENT_SOURCE_DIR}/cmake/deb-postrm.in
-                 ${CMAKE_CURRENT_BINARY_DIR}/deb/postrm @ONLY)
+          ${CMAKE_CURRENT_BINARY_DIR}/deb/postrm @ONLY)
   set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
-      "${CMAKE_CURRENT_BINARY_DIR}/deb/postinst;${CMAKE_CURRENT_BINARY_DIR}/deb/postrm")
+          "${CMAKE_CURRENT_BINARY_DIR}/deb/postinst;${CMAKE_CURRENT_BINARY_DIR}/deb/postrm")
 
   # No compression flag default; use xz for smaller .deb.
   set(CPACK_DEBIAN_COMPRESSION_TYPE "xz")

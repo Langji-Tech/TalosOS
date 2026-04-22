@@ -315,7 +315,7 @@ fi
 say "烟雾测试：在干净 env 里 import talosos.runtime"
 if env -i HOME="$HOME" PATH="$venv_prefix/bin:/usr/bin:/bin" \
       "$venv_py" -c 'from talosos.runtime import Node, init; init(); \
-print("node:", Node.create("venv_smoketest").name())'; then
+print("node:", Node.create("venv_smoketest").name)'; then
   ok "import OK —— RPATH 解析干净。"
 else
   die "烟雾测试失败，看上面 traceback。"
@@ -337,7 +337,7 @@ ${C_OK}════════════════════════�
 
 用法（每次开 shell）：
   source ${venv_prefix}/bin/activate
-  python -c 'from talosos.runtime import Node, init; init(); print(Node.create("hi").name())'
+  python -c 'from talosos.runtime import Node, init; init(); print(Node.create("hi").name)'
   talos topic list
 
 源码改了要 rebuild：

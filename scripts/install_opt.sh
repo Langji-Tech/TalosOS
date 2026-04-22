@@ -167,10 +167,22 @@ auto_install_pip() {
 
 auto_install_rust() {
   [ $MISSING_RUST -eq 0 ] && return 0
+  # 国内镜像（USTC）；海外环境直接走官方。设了 RUSTUP_DIST_SERVER 就跳过。
+  if [ -z "${RUSTUP_DIST_SERVER:-}" ]; then
+    export RUSTUP_DIST_SERVER="https://mirrors.ustc.edu.cn/rust-static"
+    export RUSTUP_UPDATE_ROOT="https://mirrors.ustc.edu.cn/rust-static/rustup"
+  fi
+  local installer_url="${RUSTUP_INSTALLER_URL:-https://sh.rustup.rs}"
   echo "${C_HI}→${C_OFF} installing Rust via rustup (stable)"
+  echo "  RUSTUP_DIST_SERVER = ${RUSTUP_DIST_SERVER}"
+  # 先下载再执行，避免 curl|sh 管道吃掉 stdin 导致交互卡住
+  local tmp_installer
+  tmp_installer="$(mktemp /tmp/rustup-init-XXXXXX.sh)"
+  curl --proto '=https' --tlsv1.2 -sSf --connect-timeout 30 \
+    "$installer_url" -o "$tmp_installer"
   # -y 非交互、--default-toolchain stable 装稳定版
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-    | sh -s -- -y --default-toolchain stable --no-modify-path >/dev/null
+  sh "$tmp_installer" -y --default-toolchain stable --no-modify-path
+  rm -f "$tmp_installer"
   # 让当前 shell 也能看到 cargo
   if [ -f "$HOME/.cargo/env" ]; then
     # shellcheck disable=SC1091
@@ -286,10 +298,15 @@ fi
 
 # ---- Build & install ------------------------------------------------------
 
+# Pin the Python interpreter to the one on PATH (`python3`), not whatever
+# highest version CMake discovers on its own (e.g. python3.9 vs python3.8).
+PYTHON3_EXE="${PYTHON3_EXE:-$(command -v python3)}"
+
 echo "[1/3] configuring…"
 cmake -S "${REPO_ROOT}" -B "${BUILD_DIR}" \
   -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" \
-  -DCMAKE_INSTALL_PREFIX="${PREFIX}"
+  -DCMAKE_INSTALL_PREFIX="${PREFIX}" \
+  -DPython3_EXECUTABLE="${PYTHON3_EXE}"
 
 echo "[2/3] building (jobs=${JOBS})…"
 cmake --build "${BUILD_DIR}" -j "${JOBS}"

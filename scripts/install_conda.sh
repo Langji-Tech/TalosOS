@@ -222,7 +222,7 @@ if env -i \
       HOME="$HOME" \
       PATH="$env_prefix/bin:/usr/bin:/bin" \
       "$env_py" -c 'from talosos.runtime import Node, init; init(); \
-print("node:", Node.create("conda_smoketest").name())'; then
+print("node:", Node.create("conda_smoketest").name)'; then
   ok "Python import works (RPATH resolved cleanly)."
 else
   die "Smoke test failed — check the traceback above."
@@ -245,7 +245,7 @@ ${C_OK}════════════════════════�
 Use it:
   ${C_DIM}# already active now; next time just:${C_OFF}
   conda activate ${env_name}
-  python -c 'from talosos.runtime import Node, init; init(); print(Node.create("hi").name())'
+  python -c 'from talosos.runtime import Node, init; init(); print(Node.create("hi").name)'
   talos topic list
 
 To rebuild after source changes:
