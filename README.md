@@ -85,8 +85,11 @@ Ubuntu / Debian 一键把依赖装齐：
 sudo apt install -y build-essential cmake pkg-config libeigen3-dev \
                     python3 python3-pip python3-yaml \
                     python3-matplotlib python3-pyqt5 libopencv-dev
-python3 -m pip install --user --break-system-packages \
-    pybind11 pyyaml pyqtgraph PyOpenGL
+
+# pybind11 等：先 --user，不行再加 --break-system-packages（PEP 668 新系统才需要）
+python3 -m pip install --user pybind11 pyyaml pyqtgraph PyOpenGL \
+  || python3 -m pip install --user --break-system-packages \
+       pybind11 pyyaml pyqtgraph PyOpenGL
 
 # Rust（zenoh-c 必需，apt 的 cargo 通常太旧，用 rustup）
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh

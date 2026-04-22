@@ -145,8 +145,12 @@ check_prereqs() {
       echo
       echo "  sudo apt update"
       echo "  sudo apt install -y ${apt_pkgs}"
-      echo "  # pybind11 通过 pip（apt 的版本经常过旧）"
-      echo "  python3 -m pip install --user --break-system-packages pybind11 pyyaml"
+      echo
+      echo "  # pybind11（apt 版经常过旧或缺 CMake 配置 → 走 pip）"
+      echo "  # 旧系统（pip<23）去掉 --break-system-packages；新系统（PEP 668）需要。"
+      echo "  # 下面一行自动兼容两种："
+      echo "  python3 -m pip install --user pybind11 pyyaml \\"
+      echo "    || python3 -m pip install --user --break-system-packages pybind11 pyyaml"
       echo
       echo "  # Rust（zenoh-c 编译必需）"
       echo "  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
@@ -156,7 +160,8 @@ check_prereqs() {
       echo "${C_HI}在 Fedora / RHEL 装齐所需依赖：${C_OFF}"
       echo
       echo "  sudo ${PKG_MGR} install -y gcc-c++ cmake pkgconfig eigen3-devel python3-pip python3-pyyaml"
-      echo "  python3 -m pip install --user pybind11 pyyaml"
+      echo "  python3 -m pip install --user pybind11 pyyaml \\"
+      echo "    || python3 -m pip install --user --break-system-packages pybind11 pyyaml"
       echo "  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
       echo "  source \"\$HOME/.cargo/env\""
       ;;
