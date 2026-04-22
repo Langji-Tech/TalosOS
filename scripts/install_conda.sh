@@ -144,9 +144,28 @@ say "python library file : ${py_lib:-<not found; cmake will probe>}"
 say "target site_dir     : $py_site"
 
 if [ ! -f "$py_inc/Python.h" ]; then
-  warn "Python.h not found at $py_inc/Python.h — the env may be a stripped
-      'install_only' Python. Extension build will fail. Install a conda
-      env with real Python (e.g. 'conda install -c conda-forge python')."
+  cat >&2 <<EOF
+${C_ERR}FATAL${C_OFF}: conda env's Python has no dev headers.
+  Missing: $py_inc/Python.h
+
+  Likely cause: this env uses \`pkgs/main\`'s Python (Anaconda default
+  channel) which in recent versions stopped shipping the Python dev
+  headers — so no C/C++ extension can build.
+
+  Fix: replace with conda-forge's Python (which includes headers):
+
+      conda install -n $env_name -c conda-forge python=${py_ver} -y
+      ./scripts/install_conda.sh --clean
+
+  Or rebuild the env from scratch against conda-forge:
+
+      conda deactivate
+      conda env remove -n $env_name -y
+      conda create -n $env_name -c conda-forge python=${py_ver} -y
+      conda activate $env_name
+      ./scripts/install_conda.sh --clean
+EOF
+  exit 2
 fi
 
 cmake_py_args=(
