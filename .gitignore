@@ -1,14 +1,15 @@
-# CMake / build
+# CMake / build outputs（只排产物，**不**用 *.cmake 全局匹配，
+# 否则会误伤 zenoh-cpp/** 里的 helpers.cmake / FindXxx.cmake 源文件）
 /build*/
 /install/
 /_deps/
+build-conda-*/
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
 CTestTestfile.cmake
-Makefile
-*.cmake
-!cmake/*.cmake
+CPackConfig.cmake
+CPackSourceConfig.cmake
 
 # Python
 __pycache__/
@@ -17,24 +18,22 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-build-conda-*/
-*.so
 
-# Pybind11 extension installed in-tree (if any)
+# Pybind11 扩展如果在源树里编出来的话
 python/talosos/_talosos_runtime*.so
 
-# Debian packaging
+# Debian 打包产物
 *.deb
 *.dsc
 *.changes
 *.buildinfo
 /debian/files
 
-# Docs build output
+# 文档构建输出
 /docs/site/
 /docs.tar.bz2
 
-# Rust (zenoh-c build)
+# Rust (zenoh-c 构建)
 target/
 
 # IDE / editor
@@ -45,16 +44,16 @@ target/
 *.swp
 *.swo
 
-# OS
+# OS 杂物
 .DS_Store
 Thumbs.db
 
-# Test / temporary
+# 临时 / 日志
 *.log
 /tmp/
 *.tmp
 /talos_demo_ws/
 
-# Sample data that's too big for git / explicitly excluded
+# 显式排除的样例数据
 /image.png
 /key_frame_*.pcd
