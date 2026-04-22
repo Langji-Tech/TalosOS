@@ -204,23 +204,52 @@ if command -v ninja >/dev/null 2>&1; then
 fi
 
 # Python 开发头 / 库住在 base_prefix（venv 不复制它们，uv 的 Python 更特殊）。
-# 查出来显式告诉 cmake，否则 find_package(Python3 Development.Module) 找不到
-# → pybind11 扩展静默不编。
+# 直接用 sysconfig 问出来 include / libpython，硬传给 cmake，避免 FindPython3
+# 在 uv / 非标准布局下 Development.Module 探测失败。
 py_base="$("$venv_py" -c 'import sys; print(sys.base_prefix)')"
-py_sysroot="${py_base}"        # 给 cmake 的 Python3_ROOT_DIR
 py_site="lib/python${py_ver}/site-packages"
 
-say "python base_prefix: $py_base"
-say "expected site_dir : $py_site"
+py_inc="$("$venv_py" -c 'import sysconfig; print(sysconfig.get_paths()["include"])')"
+py_libdir="$("$venv_py" -c 'import sysconfig; print(sysconfig.get_config_var("LIBDIR") or "")')"
+py_ldlib="$("$venv_py" -c 'import sysconfig; print(sysconfig.get_config_var("LDLIBRARY") or "")')"
+py_instso="$("$venv_py" -c 'import sysconfig; print(sysconfig.get_config_var("INSTSONAME") or "")')"
+
+# 试几种常见 libpython 文件名，挑第一个真实存在的
+py_lib=""
+for cand in "$py_libdir/$py_ldlib" "$py_libdir/$py_instso" \
+            "$py_libdir/libpython${py_ver}.so" \
+            "$py_libdir/libpython${py_ver}.so.1.0" \
+            "$py_libdir/libpython${py_ver}m.so" \
+            "$py_base/lib/$py_ldlib" \
+            "$py_base/lib/$py_instso"; do
+  if [ -n "$cand" ] && [ -f "$cand" ]; then
+    py_lib="$cand"; break
+  fi
+done
+
+say "python base_prefix  : $py_base"
+say "python include dir  : $py_inc"
+say "python library file : ${py_lib:-<未找到；让 cmake 自己找>}"
+say "target site_dir     : $py_site"
+
+# 额外的 Python-pose cmake 参数
+cmake_py_args=(
+  -DPython3_EXECUTABLE="$venv_py"
+  -DPython3_ROOT_DIR="$py_base"
+  # FIRST：venv 里找不到 Development.Module 时允许回退到 Python3_ROOT_DIR
+  # （ONLY 会强制只看 venv，uv venv 里没头 → 扑街）
+  -DPython3_FIND_VIRTUALENV=FIRST
+  -DPython3_FIND_STRATEGY=LOCATION
+  -DPython3_FIND_UNVERSIONED_NAMES=FIRST
+)
+[ -d "$py_inc" ]   && cmake_py_args+=(-DPython3_INCLUDE_DIR="$py_inc")
+[ -n "$py_lib"  ]  && cmake_py_args+=(-DPython3_LIBRARY="$py_lib")
 
 say "configure (generator: $(if [ ${#ninja_gen[@]} -gt 0 ]; then echo Ninja; else echo default; fi), $BUILD_TYPE)"
-# RPATH $ORIGIN 让扩展找到同目录的 libtalosos.so；加上 $venv/lib 做二保险
 "$cmake_bin" -S "$SRC_DIR" -B "$BUILD_DIR" "${ninja_gen[@]}" \
   -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
   -DCMAKE_INSTALL_PREFIX="$venv_prefix" \
-  -DPython3_EXECUTABLE="$venv_py" \
-  -DPython3_ROOT_DIR="$py_sysroot" \
-  -DPython3_FIND_VIRTUALENV=ONLY \
+  "${cmake_py_args[@]}" \
   -DTALOSOS_PYTHON_SITE_DIR_REL="$py_site" \
   -DCMAKE_INSTALL_RPATH='$ORIGIN;$ORIGIN/..;'"$venv_prefix/lib" \
   -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \

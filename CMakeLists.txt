@@ -83,17 +83,37 @@ if(TALOSOS_ENABLE_PCL)
   find_package(PCL QUIET COMPONENTS common io)
 endif()
 if(TALOSOS_BUILD_PYTHON)
-  find_package(Python3 QUIET COMPONENTS Interpreter Development.Module)
+  # NOT QUIET so users see exactly what gets found (and why not, if not).
+  find_package(Python3 COMPONENTS Interpreter Development.Module)
+
+  # 把关键 Python3_* 变量打到 configure 日志里，方便排查 uv / venv / conda
+  # 下 Development.Module 探测失败的情况。
+  message(STATUS "  Python3_EXECUTABLE           = ${Python3_EXECUTABLE}")
+  message(STATUS "  Python3_VERSION              = ${Python3_VERSION}")
+  message(STATUS "  Python3_Interpreter_FOUND    = ${Python3_Interpreter_FOUND}")
+  message(STATUS "  Python3_Development.Module_FOUND = ${Python3_Development.Module_FOUND}")
+  message(STATUS "  Python3_INCLUDE_DIRS         = ${Python3_INCLUDE_DIRS}")
+  message(STATUS "  Python3_LIBRARIES            = ${Python3_LIBRARIES}")
+  message(STATUS "  Python3_ROOT_DIR             = ${Python3_ROOT_DIR}")
+
   if(Python3_Interpreter_FOUND)
     execute_process(
       COMMAND "${Python3_EXECUTABLE}" -c
               "import pybind11, sys; sys.stdout.write(pybind11.get_cmake_dir())"
       OUTPUT_VARIABLE _pybind11_dir
       RESULT_VARIABLE _pybind11_rc
+      ERROR_VARIABLE  _pybind11_err
     )
     if(_pybind11_rc EQUAL 0 AND _pybind11_dir)
+      message(STATUS "  pybind11 cmake dir from pip = ${_pybind11_dir}")
       list(PREPEND CMAKE_PREFIX_PATH "${_pybind11_dir}")
-      find_package(pybind11 QUIET CONFIG)
+      find_package(pybind11 CONFIG)
+    else()
+      message(WARNING
+        "TalosOS Python runtime: pybind11 not importable in ${Python3_EXECUTABLE}\n"
+        "  install it with:\n"
+        "    ${Python3_EXECUTABLE} -m pip install pybind11\n"
+        "  stderr: ${_pybind11_err}")
     endif()
   endif()
 endif()
@@ -139,6 +159,30 @@ if(TALOSOS_BUILD_PYTHON AND pybind11_FOUND AND Python3_Development.Module_FOUND)
     LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/python"
   )
   set(TALOSOS_RUNTIME_BUILT ON)
+  message(STATUS "TalosOS Python runtime: _talosos_runtime WILL BE BUILT")
+elseif(TALOSOS_BUILD_PYTHON)
+  # 不要静默跳过 —— 说清楚到底缺哪一样，否则用户看到 install 成功但
+  # python 端 import 失败会一脸问号。
+  set(_talos_why "")
+  if(NOT Python3_Interpreter_FOUND)
+    string(APPEND _talos_why "\n  - Python3 interpreter not found")
+  endif()
+  if(NOT Python3_Development.Module_FOUND)
+    string(APPEND _talos_why
+      "\n  - Python3 Development.Module not found (need Python.h + libpython)"
+      "\n    try: -DPython3_ROOT_DIR=$(python -c 'import sys;print(sys.base_prefix)')"
+      "\n    or:  -DPython3_INCLUDE_DIR=..., -DPython3_LIBRARY=...")
+  endif()
+  if(NOT pybind11_FOUND)
+    string(APPEND _talos_why
+      "\n  - pybind11 not importable by ${Python3_EXECUTABLE}"
+      "\n    fix: ${Python3_EXECUTABLE} -m pip install pybind11")
+  endif()
+  message(WARNING
+    "TalosOS Python runtime: _talosos_runtime WILL NOT BE BUILT.${_talos_why}\n"
+    "  Consequence: `from talosos.runtime import Node` will fail at runtime;\n"
+    "  `talos` CLI that uses the runtime (rqt/viz dashboard / Python publisher)\n"
+    "  won't work. Pure-python subscription decoding still works.")
 endif()
 
 add_executable(talosos_tool src/tool/talosos_tool.cc)
