@@ -96,12 +96,45 @@ fi
 
 # ---- 4. 在 venv 里装构建工具 ----------------------------------------------
 
+ensure_pip_in_venv() {
+  # 有 pip 就不管
+  if "$venv_py" -c 'import pip' 2>/dev/null; then
+    return 0
+  fi
+  warn "venv 里没有 pip（可能是 uv / poetry 生成的精简 venv）—— 正在 bootstrap"
+  # 先试 ensurepip（Python 自带模块）
+  if "$venv_py" -m ensurepip --upgrade 2>/dev/null; then
+    ok "ensurepip 成功"
+  elif command -v curl >/dev/null 2>&1; then
+    say "ensurepip 失败；从 bootstrap.pypa.io 拉 get-pip.py"
+    local tmp; tmp="$(mktemp)"
+    curl -sS --fail --retry 3 \
+         https://bootstrap.pypa.io/get-pip.py -o "$tmp"
+    "$venv_py" "$tmp"
+    rm -f "$tmp"
+  else
+    die "venv 里没有 pip 且 curl 也不在 PATH 上。
+      手动装 pip：
+        $venv_py -m ensurepip --upgrade
+      或
+        curl -sS https://bootstrap.pypa.io/get-pip.py | $venv_py
+      装好再重跑本脚本。"
+  fi
+  # 升级到较新 pip，避免旧版本的各种奇怪 bug
+  "$venv_py" -m pip install -q --upgrade pip setuptools wheel || true
+  "$venv_py" -c 'import pip' 2>/dev/null \
+    || die "bootstrap 完 pip 仍然 import 不了。"
+  ok "pip ready: $("$venv_py" -m pip --version)"
+}
+
 install_in_venv() {
   say "pip install（venv 里）: $*"
   "$venv_py" -m pip install -q --upgrade "$@"
 }
 
 check_and_install_build_tools() {
+  ensure_pip_in_venv
+
   # 在 venv 里需要：cmake、ninja、pybind11、pyyaml
   local missing=()
   "$venv_py" -c 'import pybind11' 2>/dev/null || missing+=(pybind11)
