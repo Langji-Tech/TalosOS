@@ -75,18 +75,42 @@ talos --version                           # → talos 1.0.0
 
 ### 源码安装（任意平台）
 
-```bash
-sudo apt install -y build-essential cmake libeigen3-dev \
-    python3-pip python3-yaml python3-matplotlib python3-pyqt5 \
-    libopencv-dev cargo
-pip install --user --break-system-packages pybind11 pyqtgraph PyOpenGL
+**必备依赖**：CMake 3.16+、C++17 编译器、Rust（`cargo`，zenoh-c 编译用）、
+Eigen3、Python 3.7+、pybind11、PyYAML。缺任何一个 `scripts/install_opt.sh`
+都会在 `[0/3] checking prerequisites` 立刻报错并列出修复命令。
 
-git clone <your-mirror>/TalosOS && cd TalosOS
-scripts/install_opt.sh                    # → /opt/talosos
-source /opt/talosos/setup.bash
+Ubuntu / Debian 一键把依赖装齐：
+
+```bash
+sudo apt install -y build-essential cmake pkg-config libeigen3-dev \
+                    python3 python3-pip python3-yaml \
+                    python3-matplotlib python3-pyqt5 libopencv-dev
+python3 -m pip install --user --break-system-packages \
+    pybind11 pyyaml pyqtgraph PyOpenGL
+
+# Rust（zenoh-c 必需，apt 的 cargo 通常太旧，用 rustup）
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source "$HOME/.cargo/env"
 ```
 
-详见 [安装文档](docs/wiki/installation.md)（含 Ubuntu 18.04 / macOS /
+然后构建安装：
+
+```bash
+git clone git@github.com:Langji-Tech/TalosOS.git && cd TalosOS
+scripts/install_opt.sh                    # → /opt/talosos
+source /opt/talosos/setup.bash
+talos --version
+```
+
+macOS (Homebrew)：
+
+```bash
+brew install cmake eigen pkg-config python rust opencv pyqt@5
+python3 -m pip install --user pybind11 pyyaml pyqtgraph PyOpenGL
+scripts/install_opt.sh                    # → /usr/local/talosos
+```
+
+详见 [安装文档](docs/wiki/installation.md)（含 Ubuntu 18.04 / Fedora /
 WSL2 / Windows / conda env 各种场景）。
 
 ---
