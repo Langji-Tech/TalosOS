@@ -110,6 +110,14 @@ if [ $clean_build -eq 1 ] && [ -d "$BUILD_DIR" ]; then
 fi
 mkdir -p "$BUILD_DIR"
 
+# Refresh CMakeCache so pybind11 / Python probes pick up anything conda
+# just installed this run. Preserves compiled object files.
+if [ -f "$BUILD_DIR/CMakeCache.txt" ]; then
+  say "Refreshing CMake cache (re-probing pybind11 / Python)"
+  rm -f "$BUILD_DIR/CMakeCache.txt"
+  rm -rf "$BUILD_DIR/CMakeFiles/3."* 2>/dev/null || true
+fi
+
 say "Configuring (Ninja, $BUILD_TYPE)"
 # RPATH = $ORIGIN gives the extension a relative runpath back to libtalosos.so
 # living next to it in <prefix>/lib — so the env is self-contained and doesn't

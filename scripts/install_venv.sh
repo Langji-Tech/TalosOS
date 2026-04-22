@@ -187,6 +187,15 @@ if [ $clean_build -eq 1 ] && [ -d "$BUILD_DIR" ]; then
 fi
 mkdir -p "$BUILD_DIR"
 
+# 每次重刷 CMakeCache（保留已编译对象）——  pip 刚安装过 pybind11 / 刚
+# bootstrap 过 pip 时，cmake 上一轮的 "not found" 结果必须重新 probe，
+# 否则 _talosos_runtime.so 不会被编出来，Python 端 import 不到。
+if [ -f "$BUILD_DIR/CMakeCache.txt" ]; then
+  say "刷新 CMake cache（让 pybind11 重新 probe）"
+  rm -f "$BUILD_DIR/CMakeCache.txt"
+  rm -rf "$BUILD_DIR/CMakeFiles/3."*  2>/dev/null || true
+fi
+
 # pip-installed cmake 在 $venv/bin；用 ninja 如有；否则默认 generator
 cmake_bin="cmake"
 ninja_gen=()

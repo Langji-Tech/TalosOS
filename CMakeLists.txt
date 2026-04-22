@@ -225,12 +225,37 @@ install(PROGRAMS tools/talos_msg_gen.py
 
 # ---- Python package + talos CLI wrapper ----
 if(TALOSOS_BUILD_PYTHON AND Python3_Interpreter_FOUND)
-  # Debian / Ubuntu convention: the version-neutral dist-packages dir is on
-  # sys.path for every system Python 3.x. The ABI-tagged pybind11 extension
-  # (e.g. _talosos_runtime.cpython-310-x86_64-linux-gnu.so) sits alongside
-  # the pure-Python source; Python only loads the extension whose tag
-  # matches the running interpreter.
-  set(TALOSOS_PYTHON_SITE_DIR_REL "lib/python3/dist-packages")
+  # Decide where to drop the Python package + pybind11 extension:
+  #
+  #   venv / conda / 私有 prefix —— `Python3_EXECUTABLE` 位于
+  #       `CMAKE_INSTALL_PREFIX` 之下 —— 用标准
+  #       `lib/pythonX.Y/site-packages`，这是 venv/conda Python 原生搜索的
+  #       路径。
+  #
+  #   系统安装（Debian/Ubuntu 到 /opt/talosos）—— Python 不会版本中立地搜
+  #       `lib/python3.X/site-packages`；Debian 打过补丁把
+  #       `lib/python3/dist-packages` 加到了 sys.path，用这个可以一份拷
+  #       贝同时给 3.10 / 3.12 用。
+  #
+  # 显式覆盖：-DTALOSOS_PYTHON_SITE_DIR_REL=lib/mypython/site-packages
+  if(NOT DEFINED TALOSOS_PYTHON_SITE_DIR_REL OR TALOSOS_PYTHON_SITE_DIR_REL STREQUAL "")
+    get_filename_component(_py_real "${Python3_EXECUTABLE}" REALPATH)
+    get_filename_component(_prefix_real "${CMAKE_INSTALL_PREFIX}" REALPATH)
+    string(FIND "${_py_real}" "${_prefix_real}/" _talos_idx)
+    if(_talos_idx EQUAL 0)
+      set(TALOSOS_PYTHON_SITE_DIR_REL
+          "lib/python${Python3_VERSION_MAJOR}.${Python3_VERSION_MINOR}/site-packages")
+      message(STATUS
+        "TalosOS Python: venv/conda detected → ${TALOSOS_PYTHON_SITE_DIR_REL}")
+    else()
+      set(TALOSOS_PYTHON_SITE_DIR_REL "lib/python3/dist-packages")
+      message(STATUS
+        "TalosOS Python: system install → ${TALOSOS_PYTHON_SITE_DIR_REL}")
+    endif()
+  else()
+    message(STATUS
+      "TalosOS Python: using override TALOSOS_PYTHON_SITE_DIR_REL=${TALOSOS_PYTHON_SITE_DIR_REL}")
+  endif()
 
   install(DIRECTORY python/talosos/
     DESTINATION ${TALOSOS_PYTHON_SITE_DIR_REL}/talosos
