@@ -87,7 +87,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if not hasattr(args, "func"):
         parser.print_help()
         return 0
-    return int(args.func(args) or 0)
+    try:
+        return int(args.func(args) or 0)
+    except KeyboardInterrupt:
+        # 兜底：子命令没捕到的 Ctrl-C 在这里被吃掉，退出码沿 POSIX 惯例
+        # 128 + SIGINT(2) = 130；shell `$?` 一看就知道是被中断的。
+        sys.stderr.write("\n")
+        return 130
+    except BrokenPipeError:
+        # `talos topic echo ... | head` 之类管道关闭时不要报错
+        return 0
 
 if __name__ == "__main__":
     raise SystemExit(main())

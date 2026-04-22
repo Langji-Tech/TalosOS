@@ -45,8 +45,20 @@ def _do_call(args) -> int:
         tool_args += ["--utf8", args.utf8]
     tool_args += ["--timeout-ms", str(args.timeout_ms)]
     tool_args += _network_tool_args(args)
-    return subprocess.run([_find_tool(), *tool_args],
-                            env=os.environ.copy()).returncode
+    # 与 topic._run_tool 同样的 Ctrl-C 处理，避免 Python 抛 traceback。
+    proc = subprocess.Popen([_find_tool(), *tool_args], env=os.environ.copy())
+    try:
+        return proc.wait()
+    except KeyboardInterrupt:
+        try:
+            return proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.terminate()
+            try:
+                return proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                return proc.wait()
 
 def _do_list(args) -> int:
     entries = _collect_list(args, "service")

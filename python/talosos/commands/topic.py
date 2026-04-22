@@ -49,8 +49,25 @@ def _normalize_topic(name: str) -> str:
     return name.lstrip("/")
 
 def _run_tool(argv: Iterable[str], env: Optional[dict] = None) -> int:
+    """运行 talosos_tool，优雅处理 Ctrl-C：
+    子进程（C++）与父进程（Python）会同时收到 SIGINT。让子进程自己清理
+    并退出，父这边不再抛 KeyboardInterrupt traceback。
+    """
     cmd = [_find_tool(), *argv]
-    return subprocess.run(cmd, env=env or os.environ.copy()).returncode
+    proc = subprocess.Popen(cmd, env=env or os.environ.copy())
+    try:
+        return proc.wait()
+    except KeyboardInterrupt:
+        # 子进程已经收到 SIGINT；给它几秒收尾，必要时升级到 terminate/kill。
+        try:
+            return proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.terminate()
+            try:
+                return proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                return proc.wait()
 
 # ---- echo ----
 
