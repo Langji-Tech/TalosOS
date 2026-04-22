@@ -232,6 +232,39 @@ say "python include dir  : $py_inc"
 say "python library file : ${py_lib:-<未找到；让 cmake 自己找>}"
 say "target site_dir     : $py_site"
 
+# uv venv 常常基于 python-build-standalone 的 install_only 发行版，
+# 不带 Python.h —— pybind11 扩展编不出来。提前明示给用户换别的 Python。
+if [ ! -f "$py_inc/Python.h" ]; then
+  cat >&2 <<EOF
+${C_ERR}致命：${C_OFF} 这个 venv 的 Python 没有开发头。
+  $py_inc/Python.h 不存在。
+
+  常见原因：venv 由 \`uv\` / \`poetry\` 创建，底层是
+  python-build-standalone 的 \`install_only\` 发行版 —— 为了体积精简
+  裁掉了 Python.h / libpython.so，**无法编译任何 C/C++ 扩展**。
+
+  有两条出路：
+
+  ${C_HI}方案 A（推荐）${C_OFF}：用系统 Python 另开一个 venv 给 TalosOS 用
+      sudo apt install -y python3-dev python3-venv
+      python3 -m venv ~/venvs/talos
+      source ~/venvs/talos/bin/activate
+      cd ~/Software/TalosOS
+      ./scripts/install_venv.sh --clean
+
+  ${C_HI}方案 B${C_OFF}：让当前 uv venv 继续用，但提供系统 dev 头（ABI 要匹配）
+      sudo apt install -y python${py_ver}-dev
+      # 然后手动告诉 cmake 用系统头
+      SYS_INC=/usr/include/python${py_ver}
+      SYS_LIB=/usr/lib/x86_64-linux-gnu/libpython${py_ver}.so
+      EXTRA_CMAKE="-DPython3_INCLUDE_DIR=\$SYS_INC -DPython3_LIBRARY=\$SYS_LIB" \\
+        ./scripts/install_venv.sh --clean
+
+  方案 A 最稳；方案 B ABI 不一致可能偶发崩溃。
+EOF
+  exit 2
+fi
+
 # 额外的 Python-pose cmake 参数
 cmake_py_args=(
   -DPython3_EXECUTABLE="$venv_py"
