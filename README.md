@@ -75,42 +75,46 @@ talos --version                           # → talos 1.0.0
 
 ### 源码安装（任意平台）
 
-**必备依赖**：CMake 3.16+、C++17 编译器、Rust（`cargo`，zenoh-c 编译用）、
-Eigen3、Python 3.7+、pybind11、PyYAML。缺任何一个 `scripts/install_opt.sh`
-都会在 `[0/3] checking prerequisites` 立刻报错并列出修复命令。
-
-Ubuntu / Debian 一键把依赖装齐：
-
-```bash
-sudo apt install -y build-essential cmake pkg-config libeigen3-dev \
-                    python3 python3-pip python3-yaml \
-                    python3-matplotlib python3-pyqt5 libopencv-dev
-
-# pybind11 等：先 --user，不行再加 --break-system-packages（PEP 668 新系统才需要）
-python3 -m pip install --user pybind11 pyyaml pyqtgraph PyOpenGL \
-  || python3 -m pip install --user --break-system-packages \
-       pybind11 pyyaml pyqtgraph PyOpenGL
-
-# Rust（zenoh-c 必需，apt 的 cargo 通常太旧，用 rustup）
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source "$HOME/.cargo/env"
-```
-
-然后构建安装：
+**推荐用法**：直接跑 `scripts/install_opt.sh` —— 它会先检查依赖，缺什么
+就**问你一下是否自动装**，`Y` 回车后自动跑 `apt/dnf/brew/pacman install
+... + pip install ... + rustup`，全齐了再进 cmake 构建：
 
 ```bash
 git clone git@github.com:Langji-Tech/TalosOS.git && cd TalosOS
-scripts/install_opt.sh                    # → /opt/talosos
-source /opt/talosos/setup.bash
+./scripts/install_opt.sh                 # 交互式；缺 dep 会问一次
+source /opt/talosos/setup.bash           # macOS: /usr/local/talosos
 talos --version
 ```
 
-macOS (Homebrew)：
+环境变量旋钮：
+
+| 变量 | 作用 |
+|---|---|
+| `AUTO_INSTALL_DEPS=1 ...` | 不问、直接装（CI 或省一次回车） |
+| `AUTO_INSTALL_DEPS=0 ...` | 缺依赖只打印手动命令然后退出 |
+| `SKIP_DEPS_CHECK=1 ...`   | 跳过检查（依赖自己管） |
+| `PREFIX=~/talosos ...`     | 改装到用户目录，不用 sudo |
+| `JOBS=8 ...`               | 构建并行度 |
+
+**脚本会自动装的清单**（按平台）：
+
+| 项 | apt (Ubuntu/Debian) | dnf (Fedora) | brew (macOS) | pacman (Arch) |
+|---|---|---|---|---|
+| C++ 工具链 | build-essential | gcc-c++ | （Xcode CLT） | gcc |
+| CMake / pkg-config | cmake pkg-config | cmake pkgconfig | cmake pkg-config | cmake pkgconf |
+| Eigen3 | libeigen3-dev | eigen3-devel | eigen | eigen |
+| Python + pip + yaml | python3 python3-pip python3-yaml | python3-pip python3-pyyaml | python | python python-pip python-yaml |
+| pybind11 / pyyaml | **pip --user**（pip≥23 自动加 `--break-system-packages`）|
+| Rust / cargo | **rustup**（官方安装脚本，-y stable） |
+
+**可选但推荐**（脚本不自动装）：OpenCV（cv_bridge）、PyQt5 + pyqtgraph +
+PyOpenGL（rqt/viz 3D GPU 面板）、matplotlib（标量曲线）：
 
 ```bash
-brew install cmake eigen pkg-config python rust opencv pyqt@5
-python3 -m pip install --user pybind11 pyyaml pyqtgraph PyOpenGL
-scripts/install_opt.sh                    # → /usr/local/talosos
+# Ubuntu
+sudo apt install -y libopencv-dev python3-matplotlib python3-pyqt5
+python3 -m pip install --user pyqtgraph PyOpenGL \
+  || python3 -m pip install --user --break-system-packages pyqtgraph PyOpenGL
 ```
 
 详见 [安装文档](docs/wiki/installation.md)（含 Ubuntu 18.04 / Fedora /
