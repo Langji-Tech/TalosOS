@@ -37,6 +37,20 @@ PPA 升级。
 核心约束：pybind11 扩展 ABI 和 Python 版本严格绑定，`.deb` / `install_opt.sh`
 打的是 `cpython-312`，别的版本必须重编。
 
+### 怎么在 Python venv 里用 TalosOS？{#venv}
+
+`python -m venv` 的用户走 `scripts/install_venv.sh`：
+
+```bash
+python3 -m venv ~/venvs/talos
+source ~/venvs/talos/bin/activate
+scripts/install_venv.sh
+```
+
+脚本会在 venv 里 `pip install cmake ninja pybind11 pyyaml`，检测缺 Rust
+时提示用 rustup 装，然后重编并装进 `$VIRTUAL_ENV`。venv 完全自包含，
+deactivate 就消失。详情见[安装页 → venv 独立环境](installation.md#venv)。
+
 ## 安装 & 环境
 
 ### `talos: command not found` {#talos-not-found}

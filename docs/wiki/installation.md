@@ -350,6 +350,66 @@ rm -f  $CONDA_PREFIX/bin/talos $CONDA_PREFIX/bin/talosos_tool
 
 ---
 
+## Python venv 独立环境 { #venv }
+
+没装 conda、想用标准 `python -m venv` 做隔离？走 `install_venv.sh`，行为
+与 conda 的方案 B 一致 —— 针对 venv 的 Python 重编一次，产物全部进
+`$VIRTUAL_ENV`：
+
+```bash
+# 1. 建 venv（系统 python3 的版本决定 ABI）
+python3 -m venv ~/venvs/talos
+source ~/venvs/talos/bin/activate
+
+# 2. 装 TalosOS
+cd /path/to/TalosOS
+scripts/install_venv.sh              # 自动 pip install cmake ninja pybind11 pyyaml
+scripts/install_venv.sh --clean      # 源码改动后从头重编
+```
+
+脚本会：
+
+1. 检查 `$VIRTUAL_ENV` 已激活，拿到 venv 的 Python 版本 + ABI tag
+2. 在 venv 里 `pip install` 缺的构建工具：`cmake / ninja / pybind11 / pyyaml`
+3. 检测系统 `cargo`，没有就**问你要不要 `rustup` 装**（venv 装不了 cargo，
+   只能系统级；`AUTO_INSTALL_RUST=1` 可以跳过提示）
+4. 用 venv 的 Python 配 cmake：`-DCMAKE_INSTALL_PREFIX=$VIRTUAL_ENV` +
+   `-DPython3_EXECUTABLE=$(which python)` + `-DCMAKE_INSTALL_RPATH='$ORIGIN;...'`
+5. 构建 + 安装
+6. 在 `env -i` 干净环境里烟雾测试 `import talosos.runtime`
+
+产物分布：
+
+| 文件 | 位置 |
+|---|---|
+| `libtalosos.so` / `libzenohc.so` | `$VIRTUAL_ENV/lib/` |
+| `_talosos_runtime*.so` + `talosos/` 包 | `$VIRTUAL_ENV/lib/pythonX.Y/site-packages/` |
+| `talos` / `talosos_tool` CLI | `$VIRTUAL_ENV/bin/` |
+
+因为全部进 venv，**`source activate / deactivate` 自动切换 PATH 与
+site-packages**，也不需要 `LD_LIBRARY_PATH`（RPATH 到同目录 libtalosos.so）。
+
+### venv vs conda env 怎么选
+
+| 你的情况 | 选 |
+|---|---|
+| 机器没装 conda，想轻量 Python 隔离 | **venv** + `install_venv.sh` |
+| 需要多套 Python 版本切换 | **conda** + `install_conda.sh` |
+| 已经习惯 Anaconda / Miniforge 生态 | **conda** |
+| CI / Docker 尽量少依赖 | **venv**（不需要 conda-forge 源） |
+
+### 卸载 venv 里的 TalosOS
+
+```bash
+rm -rf $VIRTUAL_ENV/lib/python*/site-packages/talosos
+rm -f  $VIRTUAL_ENV/lib/libtalosos.so* $VIRTUAL_ENV/lib/libzenohc.so
+rm -f  $VIRTUAL_ENV/bin/talos $VIRTUAL_ENV/bin/talosos_tool
+# 或者更干脆：
+deactivate && rm -rf ~/venvs/talos
+```
+
+---
+
 ## 激活环境
 
 === "bash"
