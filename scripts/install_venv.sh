@@ -203,13 +203,25 @@ if command -v ninja >/dev/null 2>&1; then
   ninja_gen=(-GNinja)
 fi
 
+# Python 开发头 / 库住在 base_prefix（venv 不复制它们，uv 的 Python 更特殊）。
+# 查出来显式告诉 cmake，否则 find_package(Python3 Development.Module) 找不到
+# → pybind11 扩展静默不编。
+py_base="$("$venv_py" -c 'import sys; print(sys.base_prefix)')"
+py_sysroot="${py_base}"        # 给 cmake 的 Python3_ROOT_DIR
+py_site="lib/python${py_ver}/site-packages"
+
+say "python base_prefix: $py_base"
+say "expected site_dir : $py_site"
+
 say "configure (generator: $(if [ ${#ninja_gen[@]} -gt 0 ]; then echo Ninja; else echo default; fi), $BUILD_TYPE)"
 # RPATH $ORIGIN 让扩展找到同目录的 libtalosos.so；加上 $venv/lib 做二保险
 "$cmake_bin" -S "$SRC_DIR" -B "$BUILD_DIR" "${ninja_gen[@]}" \
   -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
   -DCMAKE_INSTALL_PREFIX="$venv_prefix" \
   -DPython3_EXECUTABLE="$venv_py" \
+  -DPython3_ROOT_DIR="$py_sysroot" \
   -DPython3_FIND_VIRTUALENV=ONLY \
+  -DTALOSOS_PYTHON_SITE_DIR_REL="$py_site" \
   -DCMAKE_INSTALL_RPATH='$ORIGIN;$ORIGIN/..;'"$venv_prefix/lib" \
   -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \
   -DCMAKE_INSTALL_LIBDIR=lib \

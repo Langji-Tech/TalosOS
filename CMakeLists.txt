@@ -239,14 +239,21 @@ if(TALOSOS_BUILD_PYTHON AND Python3_Interpreter_FOUND)
   #
   # 显式覆盖：-DTALOSOS_PYTHON_SITE_DIR_REL=lib/mypython/site-packages
   if(NOT DEFINED TALOSOS_PYTHON_SITE_DIR_REL OR TALOSOS_PYTHON_SITE_DIR_REL STREQUAL "")
-    get_filename_component(_py_real "${Python3_EXECUTABLE}" REALPATH)
+    # 用 Python 自己的 `sys.prefix` 判断是不是 venv / conda —— 这对
+    # symlink / uv 内核都正确（不能用 Python3_EXECUTABLE 的 REALPATH，
+    # 因为 uv 的 .venv/bin/python 会解到 venv 外面的真 python）。
+    execute_process(
+      COMMAND "${Python3_EXECUTABLE}" -c
+              "import os,sys; print(os.path.realpath(sys.prefix))"
+      OUTPUT_VARIABLE _py_sys_prefix
+      OUTPUT_STRIP_TRAILING_WHITESPACE
+      RESULT_VARIABLE _py_rc)
     get_filename_component(_prefix_real "${CMAKE_INSTALL_PREFIX}" REALPATH)
-    string(FIND "${_py_real}" "${_prefix_real}/" _talos_idx)
-    if(_talos_idx EQUAL 0)
+    if(_py_rc EQUAL 0 AND _py_sys_prefix STREQUAL _prefix_real)
       set(TALOSOS_PYTHON_SITE_DIR_REL
           "lib/python${Python3_VERSION_MAJOR}.${Python3_VERSION_MINOR}/site-packages")
       message(STATUS
-        "TalosOS Python: venv/conda detected → ${TALOSOS_PYTHON_SITE_DIR_REL}")
+        "TalosOS Python: venv/conda detected (sys.prefix=${_py_sys_prefix}) → ${TALOSOS_PYTHON_SITE_DIR_REL}")
     else()
       set(TALOSOS_PYTHON_SITE_DIR_REL "lib/python3/dist-packages")
       message(STATUS

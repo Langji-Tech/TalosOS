@@ -118,6 +118,11 @@ if [ -f "$BUILD_DIR/CMakeCache.txt" ]; then
   rm -rf "$BUILD_DIR/CMakeFiles/3."* 2>/dev/null || true
 fi
 
+# Explicit Python layout — conda usually "just works" but passing these
+# guarantees we land in the conda env's site-packages with headers it ships.
+py_base="$("$env_py" -c 'import sys; print(sys.base_prefix)')"
+py_site="lib/python${py_ver}/site-packages"
+
 say "Configuring (Ninja, $BUILD_TYPE)"
 # RPATH = $ORIGIN gives the extension a relative runpath back to libtalosos.so
 # living next to it in <prefix>/lib — so the env is self-contained and doesn't
@@ -126,7 +131,9 @@ cmake -S "$SRC_DIR" -B "$BUILD_DIR" -GNinja \
   -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
   -DCMAKE_INSTALL_PREFIX="$env_prefix" \
   -DPython3_EXECUTABLE="$env_py" \
+  -DPython3_ROOT_DIR="$py_base" \
   -DPython3_FIND_VIRTUALENV=ONLY \
+  -DTALOSOS_PYTHON_SITE_DIR_REL="$py_site" \
   -DCMAKE_INSTALL_RPATH='$ORIGIN;$ORIGIN/..;'"$env_prefix/lib" \
   -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \
   -DCMAKE_INSTALL_LIBDIR=lib \
