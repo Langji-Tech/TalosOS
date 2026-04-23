@@ -84,8 +84,14 @@ _talos_all_launch_files() {
 
 _talos() {
   local -a message_types network_opts
-  message_types=(Pose Twist Imu CameraInfo Image CompressedImage LaserScan PointCloud OccupancyGrid GridMap ColorRGBA Transform TransformStamped TFMessage Path Marker MarkerArray talosos.debug_types:AddTwoIntsRequest talosos.debug_types:AddTwoIntsResponse raw)
-  network_opts=(--domain --node-namespace --mode --connect-endpoint --listen-endpoint --no-multicast --callback-threads)
+  local _mt
+  _mt="$(python3 -c 'from talosos.messages import REGISTRY; print(" ".join(sorted(REGISTRY)))' 2>/dev/null)"
+  if [[ -n "${_mt}" ]]; then
+    message_types=(${(s: :)_mt})
+  else
+    message_types=(String Bool Int8 Int16 Int32 Int64 UInt8 UInt16 UInt32 UInt64 Float32 Float64 Header PoseStamped TwistStamped TransformStamped Imu Image CompressedImage LaserScan PointCloud2 Marker MarkerArray TFMessage OccupancyGrid MapMetaData Octomap OctomapWithPose)
+  fi
+  network_opts=(--mode --connect --listen --no-multicast)
 
   if (( CURRENT == 2 )); then
     compadd -Q -S '' -- topic service pkg build run launch plot viz
@@ -106,16 +112,16 @@ _talos() {
           fi
           if (( CURRENT == 4 )) && [[ ${words[CURRENT-1]} != --* ]]; then
             local -a topics
-            topics=(${(f)"$(talos topic list --timeout 0.25 2>/dev/null)"})
+            topics=(${(f)"$(talos topic list --timeout-ms 250 2>/dev/null)"})
             (( ${#topics[@]} )) && compadd -Q -S '' -- "${topics[@]}"
             return
           fi
-          compadd -Q -S '' -- --type --count --queue-depth "${network_opts[@]}"
+          compadd -Q -S '' -- --type --count --raw --max-list "${network_opts[@]}"
           ;;
         hz)
           if (( CURRENT == 4 )) && [[ ${words[CURRENT-1]} != --* ]]; then
             local -a topics
-            topics=(${(f)"$(talos topic list --timeout 0.25 2>/dev/null)"})
+            topics=(${(f)"$(talos topic list --timeout-ms 250 2>/dev/null)"})
             (( ${#topics[@]} )) && compadd -Q -S '' -- "${topics[@]}"
             return
           fi
@@ -124,7 +130,7 @@ _talos() {
         bw)
           if (( CURRENT == 4 )) && [[ ${words[CURRENT-1]} != --* ]]; then
             local -a topics
-            topics=(${(f)"$(talos topic list --timeout 0.25 2>/dev/null)"})
+            topics=(${(f)"$(talos topic list --timeout-ms 250 2>/dev/null)"})
             (( ${#topics[@]} )) && compadd -Q -S '' -- "${topics[@]}"
             return
           fi
@@ -136,16 +142,16 @@ _talos() {
             return
           fi
           if [[ ${words[CURRENT-1]} == --raw-format ]]; then
-            compadd -Q -S '' -- utf8 hex base64
+            compadd -Q -S '' -- utf8 hex
             return
           fi
           if (( CURRENT == 4 )) && [[ ${words[CURRENT-1]} != --* ]]; then
             local -a topics
-            topics=(${(f)"$(talos topic list --timeout 0.25 2>/dev/null)"})
+            topics=(${(f)"$(talos topic list --timeout-ms 250 2>/dev/null)"})
             (( ${#topics[@]} )) && compadd -Q -S '' -- "${topics[@]}"
             return
           fi
-          compadd -Q -S '' -- --type --raw-format --type-name --count --rate "${network_opts[@]}"
+          compadd -Q -S '' -- --type --yaml --template --hex --utf8 --count --rate "${network_opts[@]}"
           ;;
         list)
           compadd -Q -S '' -- --timeout --verbose --json "${network_opts[@]}"
@@ -153,7 +159,7 @@ _talos() {
         info)
           if (( CURRENT == 4 )) && [[ ${words[CURRENT-1]} != --* ]]; then
             local -a topics
-            topics=(${(f)"$(talos topic list --timeout 0.25 2>/dev/null)"})
+            topics=(${(f)"$(talos topic list --timeout-ms 250 2>/dev/null)"})
             (( ${#topics[@]} )) && compadd -Q -S '' -- "${topics[@]}"
             return
           fi
@@ -174,7 +180,7 @@ _talos() {
           fi
           if (( CURRENT == 4 )) && [[ ${words[CURRENT-1]} != --* ]]; then
             local -a services
-            services=(${(f)"$(talos service list --timeout 0.25 2>/dev/null)"})
+            services=(${(f)"$(talos service list --timeout-ms 250 2>/dev/null)"})
             (( ${#services[@]} )) && compadd -Q -S '' -- "${services[@]}"
             return
           fi
@@ -186,7 +192,7 @@ _talos() {
         info)
           if (( CURRENT == 4 )) && [[ ${words[CURRENT-1]} != --* ]]; then
             local -a services
-            services=(${(f)"$(talos service list --timeout 0.25 2>/dev/null)"})
+            services=(${(f)"$(talos service list --timeout-ms 250 2>/dev/null)"})
             (( ${#services[@]} )) && compadd -Q -S '' -- "${services[@]}"
             return
           fi
@@ -261,7 +267,7 @@ _talos() {
       fi
       if (( CURRENT == 3 )) && [[ ${words[CURRENT-1]} != --* ]]; then
         local -a topics
-        topics=(${(f)"$(talos topic list --timeout 0.25 2>/dev/null)"})
+        topics=(${(f)"$(talos topic list --timeout-ms 250 2>/dev/null)"})
         (( ${#topics[@]} )) && compadd -Q -S '' -- "${topics[@]}"
         return
       fi
@@ -278,7 +284,7 @@ _talos() {
       fi
       if (( CURRENT == 3 )) && [[ ${words[CURRENT-1]} != --* ]]; then
         local -a topics viz_opts
-        topics=(${(f)"$(talos topic list --timeout 0.25 2>/dev/null)"})
+        topics=(${(f)"$(talos topic list --timeout-ms 250 2>/dev/null)"})
         viz_opts=(--type --renderer --config --timeout "${network_opts[@]}")
         (( ${#topics[@]} || ${#viz_opts[@]} )) && compadd -Q -S '' -- "${topics[@]}" "${viz_opts[@]}"
         return

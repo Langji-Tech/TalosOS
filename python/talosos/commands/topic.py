@@ -343,23 +343,270 @@ def _do_bw(args) -> int:
 
 def _register_pub(p: argparse.ArgumentParser) -> None:
     p.add_argument("topic")
-    payload = p.add_mutually_exclusive_group(required=True)
-    payload.add_argument("--hex", help="Payload as hex string")
-    payload.add_argument("--utf8", help="Payload as UTF-8 string")
+    p.add_argument("--type", dest="msg_type", default=None,
+                    help="消息类型名，例如 String / PoseStamped / LaserScan。"
+                         "与 --yaml 或 --template 搭配使用。")
+    payload = p.add_mutually_exclusive_group()
+    payload.add_argument("--yaml",
+                          help="消息体（YAML dict），按 --type 的 schema 解析。"
+                               "示例：--type String --yaml \"data: hello\"")
+    payload.add_argument("--hex",  help="原始 hex 字节（legacy）")
+    payload.add_argument("--utf8", help="原始 UTF-8 字符串（legacy）")
+    p.add_argument("--template", action="store_true",
+                    help="只打印 --type 对应的 YAML 空模板，不发布")
     p.add_argument("--count", type=int, default=1,
-                    help="Number of messages (default 1, 0 = infinite)")
+                    help="发送次数（默认 1；0 = 无限）")
     p.add_argument("--rate", type=float, default=1.0,
-                    help="Publish rate in Hz when --count != 1")
+                    help="频率 Hz，count != 1 时生效（默认 1）")
     _add_network_options(p)
     p.set_defaults(func=_do_pub)
 
+
 def _do_pub(args) -> int:
-    tool_args = ["topic-pub", _normalize_topic(args.topic)]
-    if args.hex:
-        tool_args += ["--hex", args.hex]
-    else:
-        tool_args += ["--utf8", args.utf8]
-    tool_args += ["--count", str(args.count), "--rate", str(args.rate)]
+    topic = _normalize_topic(args.topic)
+
+    # ---- 1. --template 模式 ----
+    if args.template:
+        if not args.msg_type:
+            print("error: --template 需要 --type <TypeName>", file=sys.stderr)
+            return 2
+        from ..messages import resolve_type
+        try:
+            type_cls = resolve_type(args.msg_type)
+        except KeyError as ex:
+            print(f"error: {ex}", file=sys.stderr)
+            return 2
+        print(f"# {args.msg_type} —— 把下面作为 --yaml 的输入")
+        print(_yaml_template(type_cls))
+        return 0
+
+    # ---- 2. --yaml 模式（推荐的新路径）----
+    if args.yaml is not None:
+        if not args.msg_type:
+            print("error: --yaml 需要 --type <TypeName>\n"
+                  "  查模板：talos topic pub <topic> --type <TypeName> --template",
+                  file=sys.stderr)
+            return 2
+        try:
+            import yaml as _yaml
+        except ImportError:
+            print("error: 需要 pyyaml。pip install pyyaml", file=sys.stderr)
+            return 2
+        from ..messages import resolve_type
+        try:
+            type_cls = resolve_type(args.msg_type)
+        except KeyError as ex:
+            print(f"error: {ex}", file=sys.stderr)
+            return 2
+        try:
+            data = _yaml.safe_load(args.yaml)
+        except Exception as ex:
+            print(f"error: YAML 解析失败: {ex}", file=sys.stderr); return 2
+        if data is None:
+            data = {}
+        try:
+            msg = _hydrate(type_cls, data, path=args.msg_type)
+        except Exception as ex:
+            print(f"error: 构造 {args.msg_type}: {ex}", file=sys.stderr); return 2
+        return _publish_msg(topic, msg, args)
+
+    # ---- 3. legacy --hex / --utf8 直通 talosos_tool ----
+    if args.hex is not None or args.utf8 is not None:
+        tool_args = ["topic-pub", topic]
+        if args.hex is not None:
+            tool_args += ["--hex", args.hex]
+        else:
+            tool_args += ["--utf8", args.utf8]
+        tool_args += ["--count", str(args.count), "--rate", str(args.rate)]
+        tool_args += _network_tool_args(args)
+        return _run_tool(tool_args)
+
+    print("error: 请给出消息来源：\n"
+          "  --type <T> --yaml \"...\"    (推荐，结构化 YAML)\n"
+          "  --type <T> --template       (查 YAML 模板)\n"
+          "  --hex / --utf8              (原始字节)",
+          file=sys.stderr)
+    return 2
+
+
+# ---- YAML → dataclass hydrator -------------------------------------------
+
+# 某些 list 字段的元素是嵌套 dataclass；Python 侧 dataclass 的类型标注太
+# 松散（用的是 list 裸类型），没法从字段里看出来 —— 这里显式登记。
+_LIST_ELEMENT_TYPES = {
+    "Marker.points":            "Point",
+    "Marker.colors":            "ColorRGBA",
+    "MarkerArray.markers":      "Marker",
+    "TFMessage.transforms":     "TransformStamped",
+    "PointCloud2.fields":       "PointField",
+    "Path.poses":               "PoseStamped",
+}
+
+
+def _hydrate(cls, data, path: str = "."):
+    """从 dict 递归构造 dataclass 实例（漏字段用 default，多字段报错）。"""
+    import dataclasses as _dc
+    from .. import messages as _msgs
+
+    if not _dc.is_dataclass(cls):
+        raise TypeError(f"{path}: {cls.__name__} 不是 dataclass")
+    if not isinstance(data, dict):
+        raise TypeError(f"{path}: 期望 dict，得到 {type(data).__name__}")
+
+    instance = cls()
+    declared = {f.name for f in _dc.fields(cls)}
+    for key in data:
+        if key not in declared:
+            raise ValueError(f"{path}: {cls.__name__} 没有字段 {key!r}")
+
+    for f in _dc.fields(cls):
+        if f.name == "TYPE_NAME" or f.name not in data:
+            continue
+        val = data[f.name]
+        default = getattr(instance, f.name)
+        sub_path = f"{path}.{f.name}"
+
+        # 嵌套 dataclass
+        if _dc.is_dataclass(type(default)):
+            setattr(instance, f.name, _hydrate(type(default), val, sub_path))
+            continue
+
+        # 列表：要么元素是 dataclass（查 _LIST_ELEMENT_TYPES），要么是标量
+        if isinstance(default, list):
+            elem_name = _LIST_ELEMENT_TYPES.get(f"{cls.__name__}.{f.name}")
+            if elem_name and val and isinstance(val[0], dict):
+                elem_cls = (_msgs.REGISTRY.get(elem_name)
+                              or getattr(_msgs, elem_name, None))
+                if elem_cls is None:
+                    raise ValueError(
+                        f"{sub_path}: 登记了元素类型 {elem_name} 但找不到类")
+                setattr(instance, f.name, [
+                    _hydrate(elem_cls, item, f"{sub_path}[{i}]")
+                    for i, item in enumerate(val)
+                ])
+            else:
+                setattr(instance, f.name, list(val))
+            continue
+
+        # bytes: 接受 hex 字符串 / utf8 字符串 / 整数列表
+        if isinstance(default, (bytes, bytearray)):
+            if isinstance(val, str):
+                try:
+                    setattr(instance, f.name, bytes.fromhex(val))
+                except ValueError:
+                    setattr(instance, f.name, val.encode())
+            elif isinstance(val, (list, tuple)):
+                setattr(instance, f.name, bytes(val))
+            else:
+                setattr(instance, f.name, val)
+            continue
+
+        # 标量
+        setattr(instance, f.name, val)
+
+    return instance
+
+
+# ---- YAML 模板生成 --------------------------------------------------------
+
+# scalar-wrapper 的 `data` 字段类型是 object（None），按 TYPE_NAME 给个合理默认
+_SCALAR_DATA_HINT = {
+    "String":  '""',
+    "Bool":    "false",
+    "Int8":    "0",  "Int16":  "0",  "Int32":  "0",  "Int64":  "0",
+    "UInt8":   "0",  "UInt16": "0",  "UInt32": "0",  "UInt64": "0",
+    "Float32": "0.0","Float64": "0.0",
+}
+
+
+def _yaml_template(cls, indent: int = 0) -> str:
+    import dataclasses as _dc
+    sp = "  " * indent
+    if not _dc.is_dataclass(cls):
+        return "null"
+    default = cls()
+    type_name = getattr(cls, "TYPE_NAME", cls.__name__)
+    lines: List[str] = []
+    for f in _dc.fields(cls):
+        if f.name == "TYPE_NAME":
+            continue
+        val = getattr(default, f.name)
+        if _dc.is_dataclass(type(val)):
+            lines.append(f"{sp}{f.name}:")
+            lines.append(_yaml_template(type(val), indent + 1))
+            continue
+        # scalar-wrapper 的 data 字段
+        if f.name == "data" and val is None and type_name in _SCALAR_DATA_HINT:
+            lines.append(f"{sp}{f.name}: {_SCALAR_DATA_HINT[type_name]}")
+            continue
+        if isinstance(val, bool):
+            lines.append(f"{sp}{f.name}: false")
+        elif isinstance(val, int):
+            lines.append(f"{sp}{f.name}: 0")
+        elif isinstance(val, float):
+            lines.append(f"{sp}{f.name}: 0.0")
+        elif isinstance(val, str):
+            lines.append(f'{sp}{f.name}: ""')
+        elif isinstance(val, (bytes, bytearray)):
+            lines.append(f'{sp}{f.name}: ""        # hex or utf8 string')
+        elif isinstance(val, list):
+            elem_name = _LIST_ELEMENT_TYPES.get(f"{cls.__name__}.{f.name}")
+            if elem_name:
+                lines.append(f"{sp}{f.name}: []       # list of {elem_name}")
+            else:
+                lines.append(f"{sp}{f.name}: []")
+        else:
+            lines.append(f"{sp}{f.name}: null")
+    return "\n".join(lines)
+
+
+# ---- 发布实现 ------------------------------------------------------------
+
+def _publish_msg(topic: str, msg, args) -> int:
+    """首选 runtime.Node.advertise → publish；runtime 缺了就走 talosos_tool pipe。"""
+    # 尝试 runtime 直发
+    try:
+        from ..runtime import Node, Rate, init, ok
+        _rt_ok = True
+    except ImportError:
+        _rt_ok = False
+
+    if _rt_ok:
+        init()
+        node = Node.create("talos_pub")
+        pub = node.advertise(topic, type(msg))
+        import time as _time
+        limit = 0 if args.count == 0 else args.count
+
+        if limit == 1:
+            pub.publish(msg)
+            _time.sleep(0.1)   # liveliness settle
+            return 0
+
+        rate = Rate(args.rate)
+        n = 0
+        try:
+            while ok():
+                pub.publish(msg)
+                n += 1
+                if limit and n >= limit:
+                    break
+                rate.sleep()
+        except KeyboardInterrupt:
+            pass
+        return 0
+
+    # 回退：编码成 bytes，交给 talosos_tool pub --hex
+    try:
+        from ..runtime import _CdrWriter, _write_any
+    except ImportError:
+        print("error: 既没有 _talosos_runtime 扩展，也缺 CDR writer。"
+              "重装 TalosOS 并确保 pybind11 编译成功。", file=sys.stderr)
+        return 2
+    w = _CdrWriter(); _write_any(w, msg)
+    payload_hex = w.to_bytes().hex()
+    tool_args = ["topic-pub", topic, "--hex", payload_hex,
+                 "--count", str(args.count), "--rate", str(args.rate)]
     tool_args += _network_tool_args(args)
     return _run_tool(tool_args)
 

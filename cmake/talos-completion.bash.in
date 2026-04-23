@@ -91,8 +91,13 @@ _talos_complete() {
   cmd1="${COMP_WORDS[1]}"
   cmd2="${COMP_WORDS[2]}"
 
-  local message_types="Pose Twist Imu CameraInfo Image CompressedImage LaserScan PointCloud OccupancyGrid GridMap ColorRGBA Transform TransformStamped TFMessage Path Marker MarkerArray talosos.debug_types:AddTwoIntsRequest talosos.debug_types:AddTwoIntsResponse raw"
-  local network_opts="--domain --node-namespace --mode --connect-endpoint --listen-endpoint --no-multicast --callback-threads"
+  # 从 talosos.messages.REGISTRY 动态拉类型名；失败就用 fallback 静态清单。
+  local message_types
+  message_types="$(python3 -c 'from talosos.messages import REGISTRY; print(" ".join(sorted(REGISTRY)))' 2>/dev/null)"
+  if [[ -z "${message_types}" ]]; then
+    message_types="String Bool Int8 Int16 Int32 Int64 UInt8 UInt16 UInt32 UInt64 Float32 Float64 Header PoseStamped TwistStamped TransformStamped Imu Image CompressedImage LaserScan PointCloud2 Marker MarkerArray TFMessage OccupancyGrid MapMetaData Octomap OctomapWithPose"
+  fi
+  local network_opts="--mode --connect --listen --no-multicast"
   local packages package_execs package_launches launch_targets
 
   if [[ ${COMP_CWORD} -eq 1 ]]; then
@@ -124,8 +129,9 @@ _talos_complete() {
       _talos_complete_wordlist "auto pose twist imu image overlay scan cloud camera path marker tf map"
       return 0
       ;;
-    topic:pub:--raw-format)
-      _talos_complete_wordlist "utf8 hex base64"
+    topic:pub:--yaml|topic:pub:--hex|topic:pub:--utf8)
+      # 消息体内容 —— 没法语义补全，给个暗示
+      COMPREPLY=()
       return 0
       ;;
     build:*:--package)
@@ -143,7 +149,8 @@ _talos_complete() {
     topic:echo|topic:hz|topic:bw|topic:pub|topic:info|plot:|viz:)
       if [[ ${prev} != --* && ${COMP_CWORD} -eq 3 ]]; then
         local topics
-        topics="$(talos topic list --timeout 0.25 2>/dev/null)"
+        # --timeout-ms 是正确的 flag（老版本用的是 --timeout，会 silent fail）
+        topics="$(talos topic list --timeout-ms 250 2>/dev/null)"
         _talos_complete_wordlist "${topics}"
         return 0
       fi
@@ -151,7 +158,7 @@ _talos_complete() {
     service:call|service:info)
       if [[ ${prev} != --* && ${COMP_CWORD} -eq 3 ]]; then
         local services
-        services="$(talos service list --timeout 0.25 2>/dev/null)"
+        services="$(talos service list --timeout-ms 250 2>/dev/null)"
         _talos_complete_wordlist "${services}"
         return 0
       fi
@@ -160,39 +167,39 @@ _talos_complete() {
 
   case "${cmd1}:${cmd2}" in
     topic:echo)
-      _talos_complete_wordlist "--type --count --queue-depth ${network_opts}"
+      _talos_complete_wordlist "--type --count --raw --max-list ${network_opts}"
       return 0
       ;;
     topic:hz)
-      _talos_complete_wordlist "--count --window --report-period --queue-depth ${network_opts}"
+      _talos_complete_wordlist "--count --window --report-period ${network_opts}"
       return 0
       ;;
     topic:bw)
-      _talos_complete_wordlist "--count --window --report-period --queue-depth ${network_opts}"
+      _talos_complete_wordlist "--count --window --report-period ${network_opts}"
       return 0
       ;;
     topic:pub)
-      _talos_complete_wordlist "--type --raw-format --type-name --count --rate ${network_opts}"
+      _talos_complete_wordlist "--type --yaml --template --hex --utf8 --count --rate ${network_opts}"
       return 0
       ;;
     topic:list)
-      _talos_complete_wordlist "--timeout --verbose --json ${network_opts}"
+      _talos_complete_wordlist "--timeout-ms --verbose ${network_opts}"
       return 0
       ;;
     topic:info)
-      _talos_complete_wordlist "--timeout --json ${network_opts}"
+      _talos_complete_wordlist "--timeout-ms ${network_opts}"
       return 0
       ;;
     service:call)
-      _talos_complete_wordlist "--request-type --response-type --timeout-ms ${network_opts}"
+      _talos_complete_wordlist "--hex --utf8 --timeout-ms ${network_opts}"
       return 0
       ;;
     service:list)
-      _talos_complete_wordlist "--timeout --verbose --json ${network_opts}"
+      _talos_complete_wordlist "--timeout-ms --verbose ${network_opts}"
       return 0
       ;;
     service:info)
-      _talos_complete_wordlist "--timeout --json ${network_opts}"
+      _talos_complete_wordlist "--timeout-ms ${network_opts}"
       return 0
       ;;
     pkg:create)
