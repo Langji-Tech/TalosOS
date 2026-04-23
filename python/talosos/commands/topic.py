@@ -75,15 +75,233 @@ def _register_echo(p: argparse.ArgumentParser) -> None:
     p.add_argument("topic")
     p.add_argument("--count", type=int, default=0,
                     help="Stop after receiving N messages (0 = unbounded)")
+    p.add_argument("--type", dest="msg_type", default=None,
+                    help="消息类型名，例如 LaserScan / PoseStamped；省略则尝试"
+                         "从 publisher 的 liveliness 广播里自动识别。")
+    p.add_argument("--raw", action="store_true",
+                    help="跳过解码，打印原始 hex 字节（旧行为）。")
+    p.add_argument("--max-list", type=int, default=16,
+                    help="列表字段最多打印多少项（默认 16）。")
     _add_network_options(p)
     p.set_defaults(func=_do_echo)
 
+
 def _do_echo(args) -> int:
-    tool_args = ["topic-echo", _normalize_topic(args.topic)]
-    if args.count:
-        tool_args += ["--count", str(args.count)]
-    tool_args += _network_tool_args(args)
-    return _run_tool(tool_args)
+    topic = _normalize_topic(args.topic)
+
+    # --raw 走旧路径：talosos_tool topic-echo 直接 hex 输出
+    if args.raw:
+        tool_args = ["topic-echo", topic]
+        if args.count:
+            tool_args += ["--count", str(args.count)]
+        tool_args += _network_tool_args(args)
+        return _run_tool(tool_args)
+
+    # 解码路径：先搞清楚类型
+    type_name = args.msg_type or _auto_detect_type(args)
+    if not type_name:
+        print(f"error: 识别不到 {args.topic} 的消息类型。\n"
+              f"  手动：talos topic echo {args.topic} --type <TypeName>\n"
+              f"  或者：talos topic echo {args.topic} --raw   "
+              f"(打印原始 hex 字节)", file=sys.stderr)
+        return 2
+
+    from ..messages import resolve_type, decode  # noqa: WPS433
+    try:
+        type_cls = resolve_type(type_name)
+    except KeyError:
+        print(f"error: 未知类型 {type_name!r}。Python 侧未注册。\n"
+              f"  用 --raw 看 hex 字节，或在 talosos.messages.REGISTRY 注册。",
+              file=sys.stderr)
+        return 2
+
+    header = _as_topic_name(topic)
+    print(f"# topic: {header}")
+    print(f"# type:  {type_name}")
+
+    # 优先用 runtime 直接订阅（零 pipe），不行就退回 subprocess iter_samples
+    if _try_runtime_echo_available():
+        return _echo_via_runtime(topic, type_cls, args)
+    return _echo_via_subprocess(topic, type_cls, args)
+
+
+def _auto_detect_type(args) -> Optional[str]:
+    """查 liveliness 列表里这个话题的广播类型，找不到返回 None。"""
+    target = _as_topic_name(_normalize_topic(args.topic))
+    try:
+        entries = _collect_list(args, "topic")
+    except Exception:
+        return None
+    for key, tname, _nodes in entries:
+        if key == target and tname:
+            return tname
+    return None
+
+
+def _try_runtime_echo_available() -> bool:
+    try:
+        from ..runtime import Node, init, ok  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def _echo_via_runtime(topic: str, type_cls, args) -> int:
+    import threading
+    import time as _time
+    from ..runtime import Node, init, ok
+    init()
+    node = Node.create("talos_echo")
+    state = {"n": 0}
+    done = threading.Event()
+    limit = args.count or 0
+
+    def on_msg(msg):
+        print("---")
+        print(_format_msg(msg, max_list=args.max_list))
+        state["n"] += 1
+        if limit and state["n"] >= limit:
+            done.set()
+
+    _sub = node.subscribe(topic, type_cls, on_msg)
+    try:
+        while ok() and not done.is_set():
+            _time.sleep(0.05)
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
+def _echo_via_subprocess(topic: str, type_cls, args) -> int:
+    from ..echo_stream import iter_samples
+    from ..messages import decode
+    limit = args.count or 0
+    n = 0
+    try:
+        for sample in iter_samples(topic, count=limit):
+            try:
+                msg = decode(type_cls.TYPE_NAME, sample.payload)
+            except Exception as ex:
+                print(f"# decode error at sample #{sample.seq}: {ex}",
+                      file=sys.stderr)
+                continue
+            print("---")
+            print(_format_msg(msg, max_list=args.max_list))
+            n += 1
+            if limit and n >= limit:
+                break
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
+# ---- 结构化打印（rostopic echo 风 YAML）-----------------------------------
+
+def _format_msg(msg, *, indent: int = 0, max_list: int = 16) -> str:
+    """Dataclass 消息 → YAML-ish 多行字符串。"""
+    import dataclasses as _dc
+
+    sp = "  " * indent
+    if msg is None:
+        return "null"
+    if isinstance(msg, bool):
+        return "true" if msg else "false"
+    if isinstance(msg, (int, float)):
+        return _format_scalar(msg)
+    if isinstance(msg, str):
+        return _format_string(msg)
+    if isinstance(msg, (bytes, bytearray)):
+        return f"<{len(msg)} bytes>"
+
+    if _dc.is_dataclass(msg):
+        lines: List[str] = []
+        for f in _dc.fields(msg):
+            # 跳过 ClassVar / TYPE_NAME 等
+            if f.name == "TYPE_NAME":
+                continue
+            val = getattr(msg, f.name)
+            if _dc.is_dataclass(val):
+                lines.append(f"{sp}{f.name}:")
+                lines.append(_format_msg(val, indent=indent + 1,
+                                           max_list=max_list))
+            elif isinstance(val, list):
+                lines.append(
+                    f"{sp}{f.name}: "
+                    + _format_list(val, indent=indent, max_list=max_list))
+            elif isinstance(val, (bytes, bytearray)):
+                lines.append(f"{sp}{f.name}: <{len(val)} bytes>")
+            elif isinstance(val, str):
+                lines.append(f"{sp}{f.name}: {_format_string(val)}")
+            elif isinstance(val, bool):
+                lines.append(f"{sp}{f.name}: {'true' if val else 'false'}")
+            elif isinstance(val, (int, float)):
+                lines.append(f"{sp}{f.name}: {_format_scalar(val)}")
+            elif val is None:
+                lines.append(f"{sp}{f.name}: null")
+            else:
+                lines.append(f"{sp}{f.name}: {val!r}")
+        return "\n".join(lines)
+
+    return repr(msg)
+
+
+def _format_list(lst: list, *, indent: int, max_list: int) -> str:
+    import dataclasses as _dc
+    if not lst:
+        return "[]"
+    show = min(len(lst), max_list)
+    truncated = len(lst) > show
+
+    # list[dataclass] —— 走 YAML 块形式
+    if _dc.is_dataclass(lst[0]):
+        sp = "  " * indent
+        out = [""]   # 让 "field: " 后跟换行开新块
+        for item in lst[:show]:
+            nested = _format_msg(item, indent=indent + 1, max_list=max_list)
+            # 把块首 "  " 替换成 "- "
+            nested_lines = nested.split("\n")
+            first_indent = "  " * (indent + 1)
+            first = nested_lines[0]
+            first_stripped = (first[len(first_indent):]
+                                if first.startswith(first_indent) else first)
+            out.append(f"{sp}- {first_stripped}")
+            out.extend(nested_lines[1:])
+        if truncated:
+            out.append(f"{sp}# ... ({len(lst) - show} more)")
+        return "\n".join(out)
+
+    # list[scalar] —— 单行 / 截断
+    body = ", ".join(_format_scalar(x) for x in lst[:show])
+    if truncated:
+        return f"[{body}, ... ({len(lst)} total)]"
+    return f"[{body}]"
+
+
+def _format_scalar(v) -> str:
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, float):
+        # 小于 1e-3 或大于 1e6 用科学计数，否则定点 6 位
+        if v == 0.0:
+            return "0.0"
+        import math as _m
+        mag = abs(v)
+        if mag < 1e-3 or mag >= 1e7:
+            return f"{v:.6g}"
+        return f"{v:.6f}"
+    return str(v)
+
+
+def _format_string(s: str) -> str:
+    """YAML-ish 字符串：多行 / 过长的截断，普通情况加双引号。"""
+    if "\n" in s:
+        head = s.split("\n", 1)[0][:60]
+        return f'"{head}..." ({len(s)} chars, multi-line)'
+    if len(s) > 120:
+        return f'"{s[:60]}...{s[-20:]}" ({len(s)} chars)'
+    # 简单转义
+    esc = s.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{esc}"'
 
 # ---- hz / bw ----
 
